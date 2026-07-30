@@ -21,7 +21,18 @@ class _LanguageSelectionScreenState extends State<LanguageSelectionScreen> {
     AppState.setLanguage(_selected!);
     await LocalStorage.saveLanguage(_selected!);
     if (!mounted) return;
-    Navigator.pushReplacementNamed(context, AppRouter.profiles);
+
+    // Reached via the "Add Child" button (profile_select_screen) with
+    // arguments: true → this pick is for the NEW profile about to be
+    // created, so go straight into profile creation with it.
+    // Reached via splash (first-ever launch) or the "Change Language"
+    // menu item on an existing profile's home screen → no arguments →
+    // keep the original behaviour of landing on the profile list.
+    final forNewProfile = ModalRoute.of(context)?.settings.arguments == true;
+    Navigator.pushReplacementNamed(
+      context,
+      forNewProfile ? AppRouter.createProfile : AppRouter.profiles,
+    );
   }
 
   @override

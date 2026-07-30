@@ -121,7 +121,8 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
                 child: CircularProgressIndicator(color: AppColors.primary))
             : _profiles.isEmpty
                 ? _EmptyState(onAdd: () async {
-                    await Navigator.pushNamed(context, AppRouter.createProfile);
+                    await Navigator.pushNamed(context, AppRouter.language,
+                        arguments: true);
                     _load();
                   })
                 : _ProfileGrid(
@@ -135,7 +136,8 @@ class _ProfileSelectScreenState extends State<ProfileSelectScreen> {
                         return;
                       }
                       await Navigator.pushNamed(
-                          context, AppRouter.createProfile);
+                          context, AppRouter.language,
+                          arguments: true);
                       _load();
                     },
                   ),
