@@ -115,9 +115,10 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     final lang     = AppState.language == 'sinhala' ? 'si' : 'en';
     final gradeNum = AppState.grade == 'grade4' ? 4 : 3;
     final result   = await HybridPronunciationScorer.stopAndScore(
-      word:     _currentWord.pKey,
-      lang:     lang,
-      gradeNum: gradeNum,
+      word:          _currentWord.pKey,
+      lang:          lang,
+      gradeNum:      gradeNum,
+      sinhalaScript: _currentWord.word,
     );
 
     if (!mounted) return;
@@ -125,6 +126,17 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
 
     // No speech detected — show a gentle prompt, don't count as an attempt.
     if (result.verdict == 'NO_SPEECH') {
+      setState(() { _lastResult = result; _showResult = true; });
+      _resultCtrl.forward(from: 0);
+      Future.delayed(const Duration(milliseconds: 1800), () {
+        if (mounted) setState(() => _showResult = false);
+      });
+      return;
+    }
+
+    // No internet for Sinhala (Gemini) scoring — show a clear message,
+    // don't count as an attempt or consume a retry.
+    if (result.verdict == 'NO_INTERNET') {
       setState(() { _lastResult = result; _showResult = true; });
       _resultCtrl.forward(from: 0);
       Future.delayed(const Duration(milliseconds: 1800), () {
@@ -761,6 +773,55 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                     AppState.language == 'sinhala'
                         ? 'ශබ්දය අපට ඇසෙන්නේ නැත'
                         : "We couldn't hear you",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.nunito(
+                      fontSize: 14,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ).animate().fadeIn(duration: 300.ms),
+      );
+    }
+
+    // ── No internet for Sinhala (Gemini) scoring ───────────────────────────────
+    if (result.verdict == 'NO_INTERNET') {
+      return Positioned.fill(
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.45),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 32),
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.wifi_off_rounded,
+                      size: 56, color: Colors.orange),
+                  const SizedBox(height: 12),
+                  Text(
+                    AppState.language == 'sinhala'
+                        ? 'අන්තර්ජාලය අවශ්‍යයි!'
+                        : 'Internet needed for Sinhala practice',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.nunito(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.orange,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    AppState.language == 'sinhala'
+                        ? 'කරුණාකර සම්බන්ධතාවය පරීක්ෂා කර නැවත උත්සාහ කරන්න'
+                        : 'Please check your connection and try again',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.nunito(
                       fontSize: 14,

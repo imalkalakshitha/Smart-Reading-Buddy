@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/pronunciation_result.dart';
-import 'pronunciation_scorer.dart';
+import 'gemini_sinhala_scorer.dart';
+// ignore: unused_import
+import 'pronunciation_scorer.dart'; // FALLBACK — see stopAndScore/startRecording below
 import 'simple_pronunciation_scorer.dart';
 
 /// Hybrid pronunciation scorer — word verification + quality stars.
@@ -13,10 +15,13 @@ import 'simple_pronunciation_scorer.dart';
 ///            phonetic variants, edit-distance, similarity ratio, Soundex).
 ///            Unchanged — si_LK STT is not reliably available offline, but
 ///            en_US is standard on virtually every Android device.
-/// Sinhala  → PronunciationScorer (offline MFCC + DTW acoustic matching
-///            against pre-built reference templates). No speech-recognition
-///            language pack involved at all, so it works fully offline
-///            regardless of what STT locales the device has installed.
+/// Sinhala  → GEMINI_EXPERIMENT: GeminiSinhalaScorer (cloud multimodal
+///            transcription via REST, requires internet — see
+///            gemini_sinhala_scorer.dart). This is an isolated experiment
+///            replacing an earlier on-device Whisper attempt.
+///            PronunciationScorer (offline MFCC/DTW, no internet needed) is
+///            the previous/fallback path — commented directly above each
+///            call site below, uncomment to revert to it.
 ///
 /// When English STT is completely unavailable the energy-envelope scorer
 /// (SimplePronunciationScorer) is used as a last resort.
@@ -129,9 +134,14 @@ class HybridPronunciationScorer {
     _fallbackSub = null;
 
     if (lang == 'si') {
-      // Sinhala — offline DTW/MFCC scorer. No STT/language pack involved.
-      await PronunciationScorer.startRecording();
-      _fallbackSub = PronunciationScorer.amplitudeStream.listen(_safeAdd);
+      // FALLBACK - uncomment to revert to the offline DTW/MFCC scorer
+      // await PronunciationScorer.startRecording();
+      // _fallbackSub = PronunciationScorer.amplitudeStream.listen(_safeAdd);
+      // return;
+
+      // GEMINI_EXPERIMENT — cloud transcription, requires internet.
+      await GeminiSinhalaScorer.startRecording();
+      _fallbackSub = GeminiSinhalaScorer.amplitudeStream.listen(_safeAdd);
       return;
     }
 
@@ -180,14 +190,23 @@ class HybridPronunciationScorer {
     required String word,
     required String lang,
     required int    gradeNum,
+    // Sinhala script text of [word] (word is the romanised asset key,
+    // e.g. "gama" — Gemini needs the actual script, e.g. "ගම", to compare
+    // its transcription against). Unused for English.
+    String? sinhalaScript,
   }) async {
     await _fallbackSub?.cancel();
     _fallbackSub = null;
 
-    // Sinhala — offline DTW/MFCC scorer, no STT/text matching involved.
     if (lang == 'si') {
-      final verdict = await PronunciationScorer.stopAndScore(
-          word: word, lang: lang, gradeNum: gradeNum);
+      // FALLBACK - uncomment to revert to the offline DTW/MFCC scorer
+      // final verdict = await PronunciationScorer.stopAndScore(
+      //     word: word, lang: lang, gradeNum: gradeNum);
+      // return _verdictToFallbackResult(verdict);
+
+      // GEMINI_EXPERIMENT — cloud transcription, requires internet.
+      final verdict = await GeminiSinhalaScorer.stopAndScore(
+          word: sinhalaScript ?? word, gradeNum: gradeNum);
       return _verdictToFallbackResult(verdict);
     }
 
@@ -342,6 +361,9 @@ class HybridPronunciationScorer {
       case 'NO_SPEECH':
         return const PronunciationResult(
             verdict: 'NO_SPEECH', stars: 0, xpEarned: 0);
+      case 'NO_INTERNET':
+        return const PronunciationResult(
+            verdict: 'NO_INTERNET', stars: 0, xpEarned: 0);
       default:
         return const PronunciationResult(
             verdict: 'WRONG', stars: 0, xpEarned: 0);

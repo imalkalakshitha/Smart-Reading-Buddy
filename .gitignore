@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# API keys / secrets — never commit real credentials
+lib/config/api_keys.dart
