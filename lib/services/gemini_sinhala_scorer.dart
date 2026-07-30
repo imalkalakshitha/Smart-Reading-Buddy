@@ -42,12 +42,10 @@ class GeminiSinhalaScorer {
 
   static const int _defaultRetryDelaySeconds = 20;
 
-  // Pinned to a specific lighter model rather than the "-latest" alias —
-  // gemini-flash-latest currently resolves to gemini-3.6-flash, which has
-  // a much lower free-tier rate limit and was hitting 429s quickly.
-  // gemini-2.5-flash-lite has a higher free-tier quota. Revisit if this
-  // model is deprecated (see git history for the -latest alias approach).
-  static const String _model = 'gemini-2.5-flash-lite';
+  // Pinned to a specific model rather than the "-latest" alias — see git
+  // history for prior model choices (gemini-flash-latest, then
+  // gemini-2.5-flash-lite) and why each was swapped out.
+  static const String _model = 'gemini-1.5-flash';
   static const int _sr         = 16000;
   static const int _minSamples = 3200; // 200 ms minimum recording
 
