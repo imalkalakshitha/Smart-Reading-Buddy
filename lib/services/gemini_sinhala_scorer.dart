@@ -15,6 +15,14 @@ class _GeminiRateLimitException implements Exception {
   _GeminiRateLimitException(this.retryAfterSeconds);
 }
 
+/// Thrown internally when Gemini responds 404 for a given model — this
+/// account doesn't actually have access to it, regardless of whether it
+/// shows up in ListModels.
+class _GeminiModelNotFoundException implements Exception {
+  final String model;
+  _GeminiModelNotFoundException(this.model);
+}
+
 /// Sinhala pronunciation scorer — Gemini multimodal transcription.
 ///
 /// Isolated experiment (replaces an earlier on-device Whisper attempt):
@@ -22,10 +30,13 @@ class _GeminiRateLimitException implements Exception {
 /// Sinhala-script transcription of the single spoken word, then compares
 /// that transcription against the expected word text.
 ///
-/// On a 429 (rate limit) response, waits for the server-suggested delay
-/// (parsed from the error body, default 20s if not present) and retries
-/// once. If still rate-limited after that, fails gracefully — no crash,
-/// caller gets the usual WRONG-style verdict instead of an exception.
+/// Model selection tries a fixed priority list (see [_candidateModels])
+/// rather than trusting ListModels, since that endpoint lists models this
+/// account doesn't actually have access to. A 404 on the current model
+/// clears the cache and moves to the next candidate automatically; a 429
+/// waits out the server-suggested delay and retries the same model once.
+/// If nothing works, fails gracefully — no crash, caller gets the usual
+/// WRONG-style verdict instead of an exception.
 ///
 /// Fully self-contained — does not touch PronunciationScorer (DTW) or
 /// HybridPronunciationScorer's English STT path. Requires internet; see
@@ -42,11 +53,22 @@ class GeminiSinhalaScorer {
 
   static const int _defaultRetryDelaySeconds = 20;
 
-  // Model is discovered at runtime via ListModels instead of hardcoded —
-  // see git history for the string of models (gemini-flash-latest,
-  // gemini-2.5-flash-lite, gemini-1.5-flash, gemini-2.0-flash,
-  // gemini-3-flash) that each went stale or hit quota/availability issues.
-  // Cached after the first successful discovery — see _resolveModel().
+  // ListModels lists models this account doesn't actually have access to
+  // (2.x entries 404 with "no longer available to new users" despite
+  // appearing there), so model selection no longer trusts it. Instead we
+  // try this fixed priority list in order, using the real transcription
+  // call itself as the availability test — the first one that doesn't
+  // 404 is cached in [_cachedModel] and reused for the rest of the app
+  // run. On a 404 for the cached model mid-session, the cache is cleared
+  // and [_candidateIndex] advances so the next call picks up the next
+  // candidate automatically — see _transcribeWithRetry.
+  static const List<String> _candidateModels = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash',
+    'gemini-3.6-flash',
+  ];
+  static int _candidateIndex = 0;
   static String? _cachedModel;
 
   static const int _sr         = 16000;
@@ -147,103 +169,74 @@ class GeminiSinhalaScorer {
     }
   }
 
-  // ── Model discovery (ListModels) — runs once, then cached ────────────────
+  // ── Model selection — fixed priority list, verified by real use ──────────
 
-  /// Discovers which Gemini model to use by calling ListModels, filtering
-  /// for models that support generateContent and have "flash" (not "pro")
-  /// in the name, logging the FULL matching list, then picking the first
-  /// match. Cached in [_cachedModel] after the first successful call — a
-  /// scoring attempt never triggers more than one ListModels call for the
-  /// lifetime of the app.
-  static Future<String?> _resolveModel() async {
+  static bool _isSkippable(String name) =>
+      name.contains('preview') || name.contains('image') || name.contains('tts');
+
+  /// Returns the model to try next: the cached one if we already have a
+  /// confirmed-working model, otherwise the next untried candidate from
+  /// [_candidateModels] (skipping any preview/image/tts entries). Returns
+  /// null once every candidate has been tried and 404'd.
+  static String? _pickModel() {
     if (_cachedModel != null) return _cachedModel;
-
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models'
-      '?key=${ApiKeys.geminiApiKey}',
-    );
-
-    try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 10));
-
-      if (response.statusCode != 200) {
-        // ignore: avoid_print
-        print('═══ GEMINI MODEL DISCOVERY ═══');
-        // ignore: avoid_print
-        print('ListModels HTTP ${response.statusCode}: ${response.body}');
-        // ignore: avoid_print
-        print('════════════════');
-        return null;
+    while (_candidateIndex < _candidateModels.length) {
+      final candidate = _candidateModels[_candidateIndex];
+      if (_isSkippable(candidate)) {
+        _candidateIndex++;
+        continue;
       }
-
-      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
-      final models = decoded['models'] as List? ?? [];
-
-      final matches = <String>[];
-      for (final entry in models) {
-        final map = entry as Map<String, dynamic>;
-        final fullName = (map['name'] as String?) ?? '';
-        final shortName = fullName.replaceFirst('models/', '');
-        final methods = (map['supportedGenerationMethods'] as List?)
-                ?.map((m) => m.toString())
-                .toList() ??
-            const <String>[];
-
-        if (methods.contains('generateContent') &&
-            shortName.contains('flash') &&
-            !shortName.contains('pro')) {
-          matches.add(shortName);
-        }
-      }
-
-      // ignore: avoid_print
-      print('═══ GEMINI MODEL DISCOVERY ═══');
-      // ignore: avoid_print
-      print('Matching models (generateContent + "flash", excluding "pro"):');
-      if (matches.isEmpty) {
-        // ignore: avoid_print
-        print('  (none found — check the API key / account access)');
-      } else {
-        for (final name in matches) {
-          // ignore: avoid_print
-          print('  - $name');
-        }
-      }
-      // ignore: avoid_print
-      print('════════════════');
-
-      if (matches.isEmpty) return null;
-
-      _cachedModel = matches.first;
-      // ignore: avoid_print
-      print('═══ GEMINI MODEL DISCOVERY ═══');
-      // ignore: avoid_print
-      print('Selected: $_cachedModel (cached for the rest of this app run)');
-      // ignore: avoid_print
-      print('════════════════');
-
-      return _cachedModel;
-    } catch (e) {
-      // ignore: avoid_print
-      print('═══ GEMINI MODEL DISCOVERY ═══');
-      // ignore: avoid_print
-      print('Error: $e');
-      // ignore: avoid_print
-      print('════════════════');
-      return null;
+      return candidate; // confirmed/cached by _transcribeOnce on success
     }
+    return null;
   }
 
-  // ── Gemini REST call, with one automatic retry on 429 ────────────────────
+  /// Called after a confirmed 404 for the current candidate — moves past
+  /// it so the next [_pickModel] call advances to the following one.
+  /// Returns false once there's nothing left to try.
+  static bool _advanceCandidate() {
+    _candidateIndex++;
+    return _candidateIndex < _candidateModels.length;
+  }
 
-  /// Calls Gemini once; on a 429 it waits out the suggested backoff and
-  /// tries exactly one more time. If it's still rate-limited (or fails for
-  /// any other reason) after that, this rethrows a plain Exception, which
-  /// [stopAndScore]'s catch block turns into a graceful WRONG result rather
-  /// than crashing the app.
+  // ── Gemini REST call, with model fallback on 404 and one retry on 429 ────
+
+  /// Tries [_transcribeOnce] with the current model. On a 404 (this
+  /// account doesn't actually have access to that model, whatever
+  /// ListModels says), clears the cache and automatically moves on to the
+  /// next candidate in [_candidateModels] — repeating until one works or
+  /// every candidate has been exhausted. On a 429 for whichever model is
+  /// currently active, waits out the suggested backoff and retries that
+  /// same model exactly once. If nothing works, throws a plain Exception,
+  /// which [stopAndScore]'s catch block turns into a graceful WRONG result
+  /// rather than crashing the app.
   static Future<String> _transcribeWithRetry(Uint8List wavBytes) async {
+    Object? lastError;
+    for (int attempt = 0; attempt < _candidateModels.length; attempt++) {
+      try {
+        return await _transcribeWithRateLimitRetry(wavBytes);
+      } on _GeminiModelNotFoundException catch (e) {
+        // ignore: avoid_print
+        print('═══ GEMINI (si) ═══');
+        // ignore: avoid_print
+        print('Model "${e.model}" returned 404 (not actually available on '
+            'this key) — clearing cache, trying next candidate');
+        // ignore: avoid_print
+        print('════════════════');
+        _cachedModel = null;
+        lastError = e;
+        if (!_advanceCandidate()) break;
+      }
+    }
+    throw Exception('All Gemini model candidates exhausted: $lastError');
+  }
+
+  /// Handles the "one retry after a 429 backoff" behaviour for whichever
+  /// single model is currently selected. Does not change models itself —
+  /// model fallback on 404 is handled by the caller, [_transcribeWithRetry].
+  static Future<String> _transcribeWithRateLimitRetry(Uint8List wavBytes) async {
     try {
-      return await _transcribe(wavBytes);
+      return await _transcribeOnce(wavBytes);
     } on _GeminiRateLimitException catch (e) {
       // ignore: avoid_print
       print('═══ GEMINI (si) ═══');
@@ -260,7 +253,7 @@ class GeminiSinhalaScorer {
       }
 
       try {
-        return await _transcribe(wavBytes);
+        return await _transcribeOnce(wavBytes);
       } on _GeminiRateLimitException {
         throw Exception(
             'Gemini still rate-limited after one retry (waited '
@@ -269,12 +262,14 @@ class GeminiSinhalaScorer {
     }
   }
 
-  static Future<String> _transcribe(Uint8List wavBytes) async {
-    final model = await _resolveModel();
+  /// Makes exactly one Gemini request with the current candidate model.
+  /// This call itself is the "does this model actually work" test — no
+  /// separate ping request is made, since the free-tier quota is tight
+  /// enough that spending it on test calls isn't worth it.
+  static Future<String> _transcribeOnce(Uint8List wavBytes) async {
+    final model = _pickModel();
     if (model == null) {
-      throw Exception(
-          'No usable Gemini model found via ListModels (see '
-          '═══ GEMINI MODEL DISCOVERY ═══ log above for details)');
+      throw Exception('No remaining Gemini model candidates to try');
     }
 
     final uri = Uri.parse(
@@ -308,6 +303,10 @@ class GeminiSinhalaScorer {
         .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
         .timeout(const Duration(seconds: 15));
 
+    if (response.statusCode == 404) {
+      throw _GeminiModelNotFoundException(model);
+    }
+
     if (response.statusCode == 429) {
       throw _GeminiRateLimitException(_parseRetryDelaySeconds(response.body));
     }
@@ -315,6 +314,10 @@ class GeminiSinhalaScorer {
     if (response.statusCode != 200) {
       throw Exception('Gemini HTTP ${response.statusCode}: ${response.body}');
     }
+
+    // Confirmed working — cache it so every later call skips straight to
+    // this model instead of re-walking the candidate list.
+    _cachedModel = model;
 
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     final candidates = decoded['candidates'] as List?;
