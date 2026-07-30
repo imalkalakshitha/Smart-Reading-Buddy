@@ -7,7 +7,6 @@ import '../models/app_state.dart';
 import '../models/app_text.dart';
 import '../router/app_router.dart';
 import '../services/session_logger.dart';
-import '../services/ble_command_service.dart';
 
 const _avatarEmoji = {
   'owl': '🦉', 'tiger': '🐯', 'frog': '🐸',
@@ -216,162 +215,12 @@ class _HomeContent extends StatelessWidget {
             ]),
           ),
         ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-            child: _TimedReadingBanner(
-              onTap: () => Navigator.pushNamed(context, AppRouter.timedReading),
-            ).animate(delay: 600.ms).fadeIn().slideY(begin: 0.3, curve: Curves.easeOut),
-          ),
-        ),
       ],
     );
   }
 }
 
-// ── Timed Reading Banner ──────────────────────────────────────────────────────
-
-class _TimedReadingBanner extends StatefulWidget {
-  final VoidCallback onTap;
-  const _TimedReadingBanner({required this.onTap});
-
-  @override
-  State<_TimedReadingBanner> createState() => _TimedReadingBannerState();
-}
-
-class _TimedReadingBannerState extends State<_TimedReadingBanner>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _scale;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 120));
-    _scale = Tween(begin: 1.0, end: 0.97).animate(
-        CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  bool get _si => AppState.language == 'sinhala';
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => _ctrl.forward(),
-      onTapUp: (_) { _ctrl.reverse(); widget.onTap(); },
-      onTapCancel: () => _ctrl.reverse(),
-      child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
-        child: Container(
-          height: 88,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [Color(0xFF1A6B8A), Color(0xFF0D4F6E)],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-            ),
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF1A6B8A).withOpacity(0.38),
-                blurRadius: 18,
-                offset: const Offset(0, 7),
-              ),
-            ],
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                right: -18,
-                top: -18,
-                child: Container(
-                  width: 110,
-                  height: 110,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.06),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.18),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Center(
-                        child: Text('⏱️', style: TextStyle(fontSize: 26)),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _si ? 'කාලය නියම කළ කියවීම' : 'Timed Reading',
-                            style: GoogleFonts.nunito(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w900,
-                              color: Colors.white,
-                            ),
-                          ),
-                          Text(
-                            _si
-                                ? 'WPM ලකුණ ගණනය කරන්න!'
-                                : 'Measure your reading speed!',
-                            style: GoogleFonts.nunito(
-                              fontSize: 12,
-                              color: Colors.white.withOpacity(0.8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    ValueListenableBuilder<bool>(
-                      valueListenable: BleCommandService.instance.connected,
-                      builder: (_, conn, __) => Row(
-                        children: [
-                          if (conn) ...[
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFF2ECC71),
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          const Icon(Icons.arrow_forward_ios_rounded,
-                              color: Colors.white, size: 18),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+// ── Timed Reading Banner (unused — no longer linked from home screen) ────────
 
 // ── Animated Header ───────────────────────────────────────────────────────────
 

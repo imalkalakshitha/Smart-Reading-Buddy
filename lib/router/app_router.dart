@@ -21,14 +21,11 @@ import '../screens/writing/letter_tracing_screen.dart';
 import '../screens/writing/word_tracing_screen.dart';
 import '../screens/writing/writing_progress_screen.dart';
 import '../screens/calibration/calibration_screen.dart';
-import '../screens/timed_reading/timed_reading_level_screen.dart';
-import '../screens/timed_reading/timed_reading_screen.dart';
 import '../models/local_storage.dart';
 import '../data/pronunciation_args.dart';
 import '../data/reading_data.dart';
 import '../data/encoding_data.dart';
 import '../data/writing_data.dart';
-import '../data/timed_reading_data.dart';
 
 class AppRouter {
   static const splash               = '/';
@@ -53,8 +50,6 @@ class AppRouter {
   static const writingWord         = '/writing/word';
   static const writingProgress     = '/writing/progress';
   static const calibration         = '/calibration';
-  static const timedReading        = '/timed-reading';
-  static const timedReadingSession = '/timed-reading/session';
   static const eduplay             = '/eduplay';
 
   static Map<String, WidgetBuilder> get routes => {
@@ -69,7 +64,6 @@ class AppRouter {
         encodingOnboarding: (_) => const EncodingOnboardingScreen(),
         writing:            (_) => const WritingHomeScreen(),
         calibration:        (_) => const CalibrationScreen(),
-        timedReading:       (_) => const TimedReadingLevelScreen(),
         eduplay:            (_) => const EduPlayJourneyScreen(),
       };
 
@@ -114,10 +108,6 @@ class AppRouter {
       case writingProgress:
         final args = settings.arguments as WritingArgs;
         return _slide(WritingProgressScreen(args: args));
-
-      case timedReadingSession:
-        final args = settings.arguments as TimedReadingArgs;
-        return _slide(TimedReadingScreen(args: args));
     }
     return null;
   }
