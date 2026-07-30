@@ -42,12 +42,13 @@ class GeminiSinhalaScorer {
 
   static const int _defaultRetryDelaySeconds = 20;
 
-  // Pinned to a specific model rather than the "-latest" alias — see git
-  // history for prior model choices (gemini-flash-latest, then
-  // gemini-2.5-flash-lite, then gemini-1.5-flash, then gemini-2.0-flash)
-  // and why each was swapped out. Only 20 requests/day on the free tier
-  // for this model as of writing — watch usage if testing heavily.
-  static const String _model = 'gemini-3-flash';
+  // Model is discovered at runtime via ListModels instead of hardcoded —
+  // see git history for the string of models (gemini-flash-latest,
+  // gemini-2.5-flash-lite, gemini-1.5-flash, gemini-2.0-flash,
+  // gemini-3-flash) that each went stale or hit quota/availability issues.
+  // Cached after the first successful discovery — see _resolveModel().
+  static String? _cachedModel;
+
   static const int _sr         = 16000;
   static const int _minSamples = 3200; // 200 ms minimum recording
 
@@ -146,6 +147,93 @@ class GeminiSinhalaScorer {
     }
   }
 
+  // ── Model discovery (ListModels) — runs once, then cached ────────────────
+
+  /// Discovers which Gemini model to use by calling ListModels, filtering
+  /// for models that support generateContent and have "flash" (not "pro")
+  /// in the name, logging the FULL matching list, then picking the first
+  /// match. Cached in [_cachedModel] after the first successful call — a
+  /// scoring attempt never triggers more than one ListModels call for the
+  /// lifetime of the app.
+  static Future<String?> _resolveModel() async {
+    if (_cachedModel != null) return _cachedModel;
+
+    final uri = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models'
+      '?key=${ApiKeys.geminiApiKey}',
+    );
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        // ignore: avoid_print
+        print('═══ GEMINI MODEL DISCOVERY ═══');
+        // ignore: avoid_print
+        print('ListModels HTTP ${response.statusCode}: ${response.body}');
+        // ignore: avoid_print
+        print('════════════════');
+        return null;
+      }
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final models = decoded['models'] as List? ?? [];
+
+      final matches = <String>[];
+      for (final entry in models) {
+        final map = entry as Map<String, dynamic>;
+        final fullName = (map['name'] as String?) ?? '';
+        final shortName = fullName.replaceFirst('models/', '');
+        final methods = (map['supportedGenerationMethods'] as List?)
+                ?.map((m) => m.toString())
+                .toList() ??
+            const <String>[];
+
+        if (methods.contains('generateContent') &&
+            shortName.contains('flash') &&
+            !shortName.contains('pro')) {
+          matches.add(shortName);
+        }
+      }
+
+      // ignore: avoid_print
+      print('═══ GEMINI MODEL DISCOVERY ═══');
+      // ignore: avoid_print
+      print('Matching models (generateContent + "flash", excluding "pro"):');
+      if (matches.isEmpty) {
+        // ignore: avoid_print
+        print('  (none found — check the API key / account access)');
+      } else {
+        for (final name in matches) {
+          // ignore: avoid_print
+          print('  - $name');
+        }
+      }
+      // ignore: avoid_print
+      print('════════════════');
+
+      if (matches.isEmpty) return null;
+
+      _cachedModel = matches.first;
+      // ignore: avoid_print
+      print('═══ GEMINI MODEL DISCOVERY ═══');
+      // ignore: avoid_print
+      print('Selected: $_cachedModel (cached for the rest of this app run)');
+      // ignore: avoid_print
+      print('════════════════');
+
+      return _cachedModel;
+    } catch (e) {
+      // ignore: avoid_print
+      print('═══ GEMINI MODEL DISCOVERY ═══');
+      // ignore: avoid_print
+      print('Error: $e');
+      // ignore: avoid_print
+      print('════════════════');
+      return null;
+    }
+  }
+
   // ── Gemini REST call, with one automatic retry on 429 ────────────────────
 
   /// Calls Gemini once; on a 429 it waits out the suggested backoff and
@@ -182,8 +270,15 @@ class GeminiSinhalaScorer {
   }
 
   static Future<String> _transcribe(Uint8List wavBytes) async {
+    final model = await _resolveModel();
+    if (model == null) {
+      throw Exception(
+          'No usable Gemini model found via ListModels (see '
+          '═══ GEMINI MODEL DISCOVERY ═══ log above for details)');
+    }
+
     final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$_model:generateContent'
+      'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent'
       '?key=${ApiKeys.geminiApiKey}',
     );
 
