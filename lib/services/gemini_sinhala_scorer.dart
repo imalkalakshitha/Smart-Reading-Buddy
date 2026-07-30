@@ -23,10 +23,12 @@ class GeminiSinhalaScorer {
 
   static final _recorder = AudioRecorder();
 
-  // Auto-updated alias — always points at the current available Flash
-  // model, so this doesn't break again when a specific dated model
-  // (e.g. gemini-2.5-flash) gets deprecated for new users.
-  static const String _model = 'gemini-flash-latest';
+  // Pinned to a specific lighter model rather than the "-latest" alias —
+  // gemini-flash-latest currently resolves to gemini-3.6-flash, which has
+  // a much lower free-tier rate limit and was hitting 429s quickly.
+  // gemini-2.5-flash-lite has a higher free-tier quota. Revisit if this
+  // model is deprecated (see git history for the -latest alias approach).
+  static const String _model = 'gemini-2.5-flash-lite';
   static const int _sr         = 16000;
   static const int _minSamples = 3200; // 200 ms minimum recording
 
