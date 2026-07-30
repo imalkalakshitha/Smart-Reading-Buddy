@@ -85,10 +85,10 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
     AppState.pin = _pin;
     await LocalStorage.saveProfile();
     if (!mounted) return;
-    // Go to calibration so the child's voice is profiled before first use.
-    // CalibrationScreen navigates onward to AppRouter.home when done.
+    // Voice setup (calibration) step skipped — go straight to what it
+    // used to hand off to.
     Navigator.pushNamedAndRemoveUntil(
-        context, AppRouter.calibration, (r) => false);
+        context, AppRouter.home, (r) => false);
   }
 
   @override
