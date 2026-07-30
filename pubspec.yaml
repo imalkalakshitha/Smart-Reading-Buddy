@@ -1,0 +1,46 @@
+name: smart_reading_buddy
+description: "Smart Reading Buddy — literacy app for dyslexic children in Sri Lanka."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  google_fonts: ^6.1.0
+  flutter_animate: ^4.3.0
+  shared_preferences: ^2.2.2
+  sqflite: ^2.3.0
+  path: ^1.9.0
+  audioplayers: ^6.0.0
+  record: ^6.0.0
+  flutter_tts: ^4.0.2
+  path_provider: ^2.1.2
+  confetti: ^0.7.0
+  fl_chart: ^0.66.2
+  speech_to_text: ^7.0.0
+  flutter_blue_plus: ^1.32.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/
+    - assets/images/mouth/
+    - assets/audio/reference/
+    - assets/audio/reference/en/grade3/
+    - assets/audio/reference/en/grade4/
+    - assets/audio/reference/si/grade3/
+    - assets/audio/reference/si/grade4/
+    - assets/audio/words/en/grade3/
+    - assets/audio/words/en/grade4/
+    - assets/audio/words/si/grade3/
+    - assets/audio/words/si/grade4/
+    - assets/audio/sentences/
