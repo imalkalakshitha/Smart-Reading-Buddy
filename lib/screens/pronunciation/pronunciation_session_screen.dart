@@ -334,7 +334,12 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
           children: [
             _buildContent(),
             if (_showResult && _lastResult != null) _buildResultOverlay(),
-            if (_scoring)
+            // Sinhala scoring goes over the network (Gemini) and can take a
+            // couple of seconds, so it gets its own indicator right at the
+            // mic button instead of this generic full-screen dim — see the
+            // hold-to-speak button below. English/DTW scoring is fast enough
+            // that this simple overlay is unnoticeable and stays as-is.
+            if (_scoring && AppState.language != 'sinhala')
               const Positioned.fill(
                 child: ColoredBox(
                   color: Color(0x55000000),
@@ -690,32 +695,56 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                       ]
                     : [],
               ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.mic_rounded,
-                    size: 42,
-                    color: _recording
-                        ? Colors.white
-                        : AppColors.pronunciation,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _recording
-                        ? (AppState.language == 'sinhala' ? 'කතා කරන්න' : 'Speaking...')
-                        : (AppState.language == 'sinhala' ? 'ස්පර්ශ කර කතා කරන්' : 'Hold & Speak'),
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: _recording
-                          ? Colors.white
-                          : AppColors.pronunciation,
+              child: (_scoring && AppState.language == 'sinhala')
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: AppColors.pronunciation,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'පරීක්ෂා කරමින්...', // "Checking your pronunciation..."
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.nunito(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.pronunciation,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.mic_rounded,
+                          size: 42,
+                          color: _recording
+                              ? Colors.white
+                              : AppColors.pronunciation,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _recording
+                              ? (AppState.language == 'sinhala' ? 'කතා කරන්න' : 'Speaking...')
+                              : (AppState.language == 'sinhala' ? 'ස්පර්ශ කර කතා කරන්' : 'Hold & Speak'),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.nunito(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: _recording
+                                ? Colors.white
+                                : AppColors.pronunciation,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
 
