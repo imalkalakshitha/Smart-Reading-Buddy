@@ -10,6 +10,7 @@ import '../../models/app_state.dart';
 import '../../router/app_router.dart';
 import '../../models/pronunciation_result.dart';
 import '../../services/coaching_strategy.dart';
+import '../../services/gemini_sinhala_scorer.dart';
 import '../../services/hybrid_pronunciation_scorer.dart';
 import '../../services/session_logger.dart';
 import '../../widgets/phoneme_image_widget.dart';
@@ -708,13 +709,18 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          'පරීක්ෂා කරමින්...', // "Checking your pronunciation..."
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.nunito(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.pronunciation,
+                        ValueListenableBuilder<bool>(
+                          valueListenable: GeminiSinhalaScorer.isRetrying,
+                          builder: (context, retrying, _) => Text(
+                            retrying
+                                ? 'මොහොතක් රැඳී සිටින්න...' // "Please wait..." (retrying)
+                                : 'පරීක්ෂා කරමින්...', // "Checking your pronunciation..."
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.pronunciation,
+                            ),
                           ),
                         ),
                       ],

@@ -2,11 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import '../config/api_keys.dart';
+
+/// Thrown internally when Gemini responds 429 (rate limited). Carries the
+/// server-suggested wait time so the caller can back off before retrying.
+class _GeminiRateLimitException implements Exception {
+  final int retryAfterSeconds;
+  _GeminiRateLimitException(this.retryAfterSeconds);
+}
 
 /// Sinhala pronunciation scorer — Gemini multimodal transcription.
 ///
@@ -15,6 +22,11 @@ import '../config/api_keys.dart';
 /// Sinhala-script transcription of the single spoken word, then compares
 /// that transcription against the expected word text.
 ///
+/// On a 429 (rate limit) response, waits for the server-suggested delay
+/// (parsed from the error body, default 20s if not present) and retries
+/// once. If still rate-limited after that, fails gracefully — no crash,
+/// caller gets the usual WRONG-style verdict instead of an exception.
+///
 /// Fully self-contained — does not touch PronunciationScorer (DTW) or
 /// HybridPronunciationScorer's English STT path. Requires internet; see
 /// [stopAndScore]'s NO_INTERNET result.
@@ -22,6 +34,13 @@ class GeminiSinhalaScorer {
   GeminiSinhalaScorer._();
 
   static final _recorder = AudioRecorder();
+
+  /// True while waiting out a 429 backoff before the automatic retry.
+  /// The UI can listen to this to show "please wait, retrying..." instead
+  /// of the normal "checking..." indicator during that specific wait.
+  static final ValueNotifier<bool> isRetrying = ValueNotifier<bool>(false);
+
+  static const int _defaultRetryDelaySeconds = 20;
 
   // Pinned to a specific lighter model rather than the "-latest" alias —
   // gemini-flash-latest currently resolves to gemini-3.6-flash, which has
@@ -99,7 +118,7 @@ class GeminiSinhalaScorer {
     }
 
     try {
-      final recognized = await _transcribe(bytes);
+      final recognized = await _transcribeWithRetry(bytes);
       final matched    = _matches(recognized, word);
 
       // ignore: avoid_print
@@ -127,7 +146,40 @@ class GeminiSinhalaScorer {
     }
   }
 
-  // ── Gemini REST call ─────────────────────────────────────────────────────
+  // ── Gemini REST call, with one automatic retry on 429 ────────────────────
+
+  /// Calls Gemini once; on a 429 it waits out the suggested backoff and
+  /// tries exactly one more time. If it's still rate-limited (or fails for
+  /// any other reason) after that, this rethrows a plain Exception, which
+  /// [stopAndScore]'s catch block turns into a graceful WRONG result rather
+  /// than crashing the app.
+  static Future<String> _transcribeWithRetry(Uint8List wavBytes) async {
+    try {
+      return await _transcribe(wavBytes);
+    } on _GeminiRateLimitException catch (e) {
+      // ignore: avoid_print
+      print('═══ GEMINI (si) ═══');
+      // ignore: avoid_print
+      print('429 rate limited — waiting ${e.retryAfterSeconds}s, retrying once');
+      // ignore: avoid_print
+      print('════════════════');
+
+      isRetrying.value = true;
+      try {
+        await Future.delayed(Duration(seconds: e.retryAfterSeconds));
+      } finally {
+        isRetrying.value = false;
+      }
+
+      try {
+        return await _transcribe(wavBytes);
+      } on _GeminiRateLimitException {
+        throw Exception(
+            'Gemini still rate-limited after one retry (waited '
+            '${e.retryAfterSeconds}s)');
+      }
+    }
+  }
 
   static Future<String> _transcribe(Uint8List wavBytes) async {
     final uri = Uri.parse(
@@ -161,6 +213,10 @@ class GeminiSinhalaScorer {
         .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
         .timeout(const Duration(seconds: 15));
 
+    if (response.statusCode == 429) {
+      throw _GeminiRateLimitException(_parseRetryDelaySeconds(response.body));
+    }
+
     if (response.statusCode != 200) {
       throw Exception('Gemini HTTP ${response.statusCode}: ${response.body}');
     }
@@ -177,6 +233,30 @@ class GeminiSinhalaScorer {
     }
     final text = (parts.first as Map<String, dynamic>)['text'] as String?;
     return (text ?? '').trim();
+  }
+
+  /// Extracts the server-suggested retry delay from a 429 error body.
+  /// Handles the structured `"retryDelay":"20s"` field Gemini normally
+  /// sends, and falls back to free-text like "retry in 20.5 seconds" or
+  /// "Please retry in 20s". Defaults to 20s if neither pattern is found.
+  static int _parseRetryDelaySeconds(String body) {
+    final structured = RegExp(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"')
+        .firstMatch(body);
+    if (structured != null) {
+      return double.tryParse(structured.group(1)!)?.ceil() ??
+          _defaultRetryDelaySeconds;
+    }
+
+    final freeText = RegExp(
+      r'retry in\s*(\d+(?:\.\d+)?)\s*s',
+      caseSensitive: false,
+    ).firstMatch(body);
+    if (freeText != null) {
+      return double.tryParse(freeText.group(1)!)?.ceil() ??
+          _defaultRetryDelaySeconds;
+    }
+
+    return _defaultRetryDelaySeconds;
   }
 
   // ── Matching ───────────────────────────────────────────────────────────────
