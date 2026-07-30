@@ -44,9 +44,10 @@ class GeminiSinhalaScorer {
 
   // Pinned to a specific model rather than the "-latest" alias — see git
   // history for prior model choices (gemini-flash-latest, then
-  // gemini-2.5-flash-lite, then gemini-1.5-flash) and why each was
-  // swapped out.
-  static const String _model = 'gemini-2.0-flash';
+  // gemini-2.5-flash-lite, then gemini-1.5-flash, then gemini-2.0-flash)
+  // and why each was swapped out. Only 20 requests/day on the free tier
+  // for this model as of writing — watch usage if testing heavily.
+  static const String _model = 'gemini-3-flash';
   static const int _sr         = 16000;
   static const int _minSamples = 3200; // 200 ms minimum recording
 
