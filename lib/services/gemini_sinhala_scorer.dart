@@ -23,7 +23,10 @@ class GeminiSinhalaScorer {
 
   static final _recorder = AudioRecorder();
 
-  static const String _model = 'gemini-2.5-flash';
+  // Auto-updated alias — always points at the current available Flash
+  // model, so this doesn't break again when a specific dated model
+  // (e.g. gemini-2.5-flash) gets deprecated for new users.
+  static const String _model = 'gemini-flash-latest';
   static const int _sr         = 16000;
   static const int _minSamples = 3200; // 200 ms minimum recording
 
