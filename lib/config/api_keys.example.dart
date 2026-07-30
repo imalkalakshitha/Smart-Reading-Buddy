@@ -3,4 +3,7 @@
 class ApiKeys {
   /// Get one at https://aistudio.google.com/apikey
   static const String geminiApiKey = '';
+
+  /// Get one at https://console.groq.com/keys
+  static const String groqApiKey = '';
 }

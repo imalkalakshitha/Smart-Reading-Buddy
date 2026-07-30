@@ -4,7 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/pronunciation_result.dart';
-import 'gemini_sinhala_scorer.dart';
+import 'groq_sinhala_scorer.dart';
+// ignore: unused_import
+import 'gemini_sinhala_scorer.dart'; // FALLBACK — see stopAndScore/startRecording below
 // ignore: unused_import
 import 'pronunciation_scorer.dart'; // FALLBACK — see stopAndScore/startRecording below
 import 'simple_pronunciation_scorer.dart';
@@ -15,13 +17,14 @@ import 'simple_pronunciation_scorer.dart';
 ///            phonetic variants, edit-distance, similarity ratio, Soundex).
 ///            Unchanged — si_LK STT is not reliably available offline, but
 ///            en_US is standard on virtually every Android device.
-/// Sinhala  → GEMINI_EXPERIMENT: GeminiSinhalaScorer (cloud multimodal
-///            transcription via REST, requires internet — see
-///            gemini_sinhala_scorer.dart). This is an isolated experiment
-///            replacing an earlier on-device Whisper attempt.
-///            PronunciationScorer (offline MFCC/DTW, no internet needed) is
-///            the previous/fallback path — commented directly above each
-///            call site below, uncomment to revert to it.
+/// Sinhala  → GROQ_EXPERIMENT: GroqSinhalaScorer (Whisper large-v3 via
+///            Groq's OpenAI-compatible REST endpoint, requires internet —
+///            see groq_sinhala_scorer.dart). Isolated experiment replacing
+///            the Gemini experiment as the active path.
+///            GeminiSinhalaScorer (cloud, requires internet) and
+///            PronunciationScorer (offline MFCC/DTW, no internet needed)
+///            are the previous/fallback paths — both commented directly
+///            above each call site below, uncomment to revert to either.
 ///
 /// When English STT is completely unavailable the energy-envelope scorer
 /// (SimplePronunciationScorer) is used as a last resort.
@@ -139,9 +142,14 @@ class HybridPronunciationScorer {
       // _fallbackSub = PronunciationScorer.amplitudeStream.listen(_safeAdd);
       // return;
 
-      // GEMINI_EXPERIMENT — cloud transcription, requires internet.
-      await GeminiSinhalaScorer.startRecording();
-      _fallbackSub = GeminiSinhalaScorer.amplitudeStream.listen(_safeAdd);
+      // FALLBACK - uncomment to revert to Gemini
+      // await GeminiSinhalaScorer.startRecording();
+      // _fallbackSub = GeminiSinhalaScorer.amplitudeStream.listen(_safeAdd);
+      // return;
+
+      // GROQ_EXPERIMENT — Whisper large-v3 via Groq, requires internet.
+      await GroqSinhalaScorer.startRecording();
+      _fallbackSub = GroqSinhalaScorer.amplitudeStream.listen(_safeAdd);
       return;
     }
 
@@ -204,8 +212,13 @@ class HybridPronunciationScorer {
       //     word: word, lang: lang, gradeNum: gradeNum);
       // return _verdictToFallbackResult(verdict);
 
-      // GEMINI_EXPERIMENT — cloud transcription, requires internet.
-      final verdict = await GeminiSinhalaScorer.stopAndScore(
+      // FALLBACK - uncomment to revert to Gemini
+      // final verdict = await GeminiSinhalaScorer.stopAndScore(
+      //     word: sinhalaScript ?? word, gradeNum: gradeNum);
+      // return _verdictToFallbackResult(verdict);
+
+      // GROQ_EXPERIMENT — Whisper large-v3 via Groq, requires internet.
+      final verdict = await GroqSinhalaScorer.stopAndScore(
           word: sinhalaScript ?? word, gradeNum: gradeNum);
       return _verdictToFallbackResult(verdict);
     }
