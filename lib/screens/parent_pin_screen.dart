@@ -3,11 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/app_colors.dart';
-import '../models/app_state.dart';
 import '../models/app_text.dart';
-import 'parent/pepa_dashboard_screen.dart';
-import 'parent/writing_progress_dashboard_screen.dart';
-import 'parent/wb_dashboard_screen.dart';
 
 const _parentPin = '1234';
 
@@ -367,23 +363,10 @@ class _ParentDashboard extends StatelessWidget {
                         ),
                       ),
                       onTap: () {
-                        final nav = Navigator.of(context);
-                        nav.pop();
-                        if (i == 2) {
-                          nav.push(MaterialPageRoute(
-                            builder: (_) => PEPADashboardScreen(
-                              profileName: AppState.name,
-                            ),
-                          ));
-                        } else if (i == 3) {
-                          nav.push(MaterialPageRoute(
-                            builder: (_) => const WritingProgressDashboard(),
-                          ));
-                        } else if (i == 4) {
-                          nav.push(MaterialPageRoute(
-                            builder: (_) => const WBDashboardScreen(),
-                          ));
-                        }
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Coming soon')),
+                        );
                       },
                     ),
                   ),
