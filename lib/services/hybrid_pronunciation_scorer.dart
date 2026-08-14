@@ -202,6 +202,11 @@ class HybridPronunciationScorer {
     // e.g. "gama" — Gemini needs the actual script, e.g. "ගම", to compare
     // its transcription against). Unused for English.
     String? sinhalaScript,
+    // Optional Gemini key override, passed straight through to
+    // GeminiSinhalaScorer.stopAndScore — defaults to that method's own
+    // default (Pronunciation's key) when omitted, so every existing call
+    // site here is unaffected. Unused for English.
+    String? geminiApiKey,
   }) async {
     await _fallbackSub?.cancel();
     _fallbackSub = null;
@@ -218,7 +223,7 @@ class HybridPronunciationScorer {
       // return _verdictToFallbackResult(verdict);
 
       final result = await GeminiSinhalaScorer.stopAndScore(
-          word: sinhalaScript ?? word, gradeNum: gradeNum);
+          word: sinhalaScript ?? word, gradeNum: gradeNum, apiKey: geminiApiKey);
       return _verdictToFallbackResult(result.verdict, rawTranscript: result.transcript);
     }
 

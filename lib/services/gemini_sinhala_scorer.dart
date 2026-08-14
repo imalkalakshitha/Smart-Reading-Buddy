@@ -122,6 +122,10 @@ class GeminiSinhalaScorer {
   static Future<({String verdict, String? transcript})> stopAndScore({
     required String word,
     required int    gradeNum,
+    // Optional per-call override — defaults to Pronunciation's own key so
+    // every existing call site is unaffected. Timed Reading's speech
+    // bridge passes ApiKeys.timedReadingGeminiApiKey explicitly here.
+    String? apiKey,
   }) async {
     final path = await _recorder.stop();
     if (path == null) return (verdict: 'WRONG', transcript: null);
@@ -151,7 +155,7 @@ class GeminiSinhalaScorer {
     }
 
     try {
-      final recognized = await _transcribeWithRetry(bytes);
+      final recognized = await _transcribeWithRetry(bytes, apiKey: apiKey);
       final matched    = _matches(recognized, word);
 
       // ignore: avoid_print
@@ -234,11 +238,11 @@ class GeminiSinhalaScorer {
   /// same model exactly once. If nothing works, throws a plain Exception,
   /// which [stopAndScore]'s catch block turns into a graceful WRONG result
   /// rather than crashing the app.
-  static Future<String> _transcribeWithRetry(Uint8List wavBytes) async {
+  static Future<String> _transcribeWithRetry(Uint8List wavBytes, {String? apiKey}) async {
     Object? lastError;
     for (int attempt = 0; attempt < _candidateModels.length; attempt++) {
       try {
-        return await _transcribeWithRateLimitRetry(wavBytes);
+        return await _transcribeWithRateLimitRetry(wavBytes, apiKey: apiKey);
       } on _GeminiModelNotFoundException catch (e) {
         // ignore: avoid_print
         print('═══ GEMINI (si) ═══');
@@ -258,9 +262,9 @@ class GeminiSinhalaScorer {
   /// Handles the "one retry after a 429 backoff" behaviour for whichever
   /// single model is currently selected. Does not change models itself —
   /// model fallback on 404 is handled by the caller, [_transcribeWithRetry].
-  static Future<String> _transcribeWithRateLimitRetry(Uint8List wavBytes) async {
+  static Future<String> _transcribeWithRateLimitRetry(Uint8List wavBytes, {String? apiKey}) async {
     try {
-      return await _transcribeOnce(wavBytes);
+      return await _transcribeOnce(wavBytes, apiKey: apiKey);
     } on _GeminiRateLimitException catch (e) {
       // ignore: avoid_print
       print('═══ GEMINI (si) ═══');
@@ -277,7 +281,7 @@ class GeminiSinhalaScorer {
       }
 
       try {
-        return await _transcribeOnce(wavBytes);
+        return await _transcribeOnce(wavBytes, apiKey: apiKey);
       } on _GeminiRateLimitException {
         throw Exception(
             'Gemini still rate-limited after one retry (waited '
@@ -290,7 +294,7 @@ class GeminiSinhalaScorer {
   /// This call itself is the "does this model actually work" test — no
   /// separate ping request is made, since the free-tier quota is tight
   /// enough that spending it on test calls isn't worth it.
-  static Future<String> _transcribeOnce(Uint8List wavBytes) async {
+  static Future<String> _transcribeOnce(Uint8List wavBytes, {String? apiKey}) async {
     final model = _pickModel();
     if (model == null) {
       throw Exception('No remaining Gemini model candidates to try');
@@ -298,7 +302,7 @@ class GeminiSinhalaScorer {
 
     final uri = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent'
-      '?key=${ApiKeys.geminiApiKey}',
+      '?key=${apiKey ?? ApiKeys.geminiApiKey}',
     );
 
     final body = jsonEncode({

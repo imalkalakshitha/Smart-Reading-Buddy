@@ -1,14 +1,19 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:speech_to_text/speech_to_text.dart';
+import '../config/api_keys.dart';
 import '../services/hybrid_pronunciation_scorer.dart';
 
 /// Thin wrapper around the Pronunciation module's proven STT/Gemini
-/// calling patterns — reused directly, not reinvented. Does NOT modify
-/// hybrid_pronunciation_scorer.dart, gemini_sinhala_scorer.dart, or
-/// anything else under screens/pronunciation/ — every call here goes
-/// through HybridPronunciationScorer's existing public static API, the
-/// same one pronunciation_session_screen.dart itself calls.
+/// calling patterns — reused directly, not reinvented. Every call here
+/// goes through HybridPronunciationScorer's existing public static API,
+/// the same one pronunciation_session_screen.dart itself calls.
+/// Two small additive-only parameters (apiKey/geminiApiKey, both
+/// optional and default-preserving) were later added to
+/// hybrid_pronunciation_scorer.dart and gemini_sinhala_scorer.dart so
+/// this bridge could supply its own Gemini key — see
+/// ApiKeys.timedReadingGeminiApiKey below — without changing any
+/// existing Pronunciation call site's behavior.
 ///
 /// HybridPronunciationScorer.stopAndScore() is built for single-word
 /// matching (verdict/stars/xp against one expected word) — not meaningful
@@ -49,6 +54,7 @@ class TimedReadingSpeechBridge {
       lang: lang,
       gradeNum: gradeNum,
       sinhalaScript: lang == 'si' ? sentenceText : null,
+      geminiApiKey: ApiKeys.timedReadingGeminiApiKey,
     );
     final transcript = result.rawTranscript;
     final noSpeech = result.verdict == 'NO_SPEECH' ||
