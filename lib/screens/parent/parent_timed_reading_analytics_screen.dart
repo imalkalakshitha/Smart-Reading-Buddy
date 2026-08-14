@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../dao/timed_reading_dao.dart';
@@ -6,6 +7,25 @@ import '../../data/timed_reading_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../widgets/sentence_report_card.dart';
+
+/// One session's date + its avg(actual/expected) pace ratio, for the
+/// "Actual vs Expected" trend chart. 1.0 = exactly on the expected pace;
+/// above 1.0 = slower than expected (elapsed_ms > expected_ms_snapshot).
+class _PaceRatioPoint {
+  final DateTime date;
+  final double ratio;
+  const _PaceRatioPoint({required this.date, required this.ratio});
+}
+
+/// One session's date + its wpm, for the WPM trend chart. Sourced
+/// straight from timed_reading_sessions.wpm (already computed and
+/// stored at session-save time) — no extra query needed beyond the
+/// getRecentSessions call the rest of this screen already makes.
+class _WpmPoint {
+  final DateTime date;
+  final double wpm;
+  const _WpmPoint({required this.date, required this.wpm});
+}
 
 /// Timed Reading summary for parents — real data from TimedReadingDao
 /// (reading_buddy.db's timed_reading_sessions / timed_reading_unit_timings,
@@ -30,6 +50,8 @@ class _ParentTimedReadingAnalyticsScreenState extends State<ParentTimedReadingAn
   List<Map<String, dynamic>> _sessions = [];
   int? _lastSessionWpm;
   int _sessionsThisWeek = 0;
+  List<_PaceRatioPoint> _paceTrend = [];
+  List<_WpmPoint> _wpmTrend = [];
 
   @override
   void initState() {
@@ -52,11 +74,58 @@ class _ParentTimedReadingAnalyticsScreenState extends State<ParentTimedReadingAn
         if (startedAt != null && now.difference(startedAt).inDays < 7) thisWeek++;
       }
       final lastWpm = rows.isNotEmpty && rows.first['wpm'] != null ? (rows.first['wpm'] as num).round() : null;
+
+      // Actual-vs-expected pace trend: for each session, avg(elapsed_ms /
+      // expected_ms_snapshot) across its own unit_timings rows — one ratio
+      // per session, in chronological (oldest-first) order for the chart.
+      // Reuses getUnitTimingsForSession (same DAO already in place), no
+      // new tracking/columns.
+      final trend = <_PaceRatioPoint>[];
+      for (final r in rows) {
+        final startedAt = DateTime.tryParse(r['started_at'] as String? ?? '');
+        if (startedAt == null) continue;
+        final sessionId = r['id'] as int;
+        final unitRows = await TimedReadingDao.getUnitTimingsForSession(sessionId);
+        final ratios = <double>[];
+        for (final u in unitRows) {
+          final expectedMs = u['expected_ms_snapshot'] as int?;
+          final elapsedMs = u['elapsed_ms'] as int?;
+          if (expectedMs == null || expectedMs <= 0 || elapsedMs == null) continue;
+          ratios.add(elapsedMs / expectedMs);
+        }
+        if (ratios.isEmpty) continue; // e.g. interrupted before any sentence
+        final avgRatio = ratios.reduce((a, b) => a + b) / ratios.length;
+        trend.add(_PaceRatioPoint(date: startedAt, ratio: avgRatio));
+      }
+      trend.sort((a, b) => a.date.compareTo(b.date));
+
+      // WPM trend — sessions with a non-null wpm, chronological order.
+      // wpm is already a column on timed_reading_sessions (computed once
+      // at save time in MiscueMarkingScreen), so this reuses the same
+      // getRecentSessions rows fetched above — no second query needed.
+      //
+      // Grouping decision: a single combined line, not split per
+      // language+level. getRecentSessions is already capped at 10 rows
+      // (and further filtered to grade), so splitting that further by
+      // language+level would typically leave 1-3 points per line —
+      // too sparse to read as a meaningful trend. Revisit if/when this
+      // screen ever shows a larger session history.
+      final wpmPoints = <_WpmPoint>[
+        for (final r in rows)
+          if (r['wpm'] != null && DateTime.tryParse(r['started_at'] as String? ?? '') != null)
+            _WpmPoint(
+              date: DateTime.parse(r['started_at'] as String),
+              wpm: (r['wpm'] as num).toDouble(),
+            ),
+      ]..sort((a, b) => a.date.compareTo(b.date));
+
       if (!mounted) return;
       setState(() {
         _sessions = rows;
         _lastSessionWpm = lastWpm;
         _sessionsThisWeek = thisWeek;
+        _paceTrend = trend;
+        _wpmTrend = wpmPoints;
         _loading = false;
       });
     } catch (e) {
@@ -105,6 +174,8 @@ class _ParentTimedReadingAnalyticsScreenState extends State<ParentTimedReadingAn
                       ),
                     ],
                   ),
+                  const SizedBox(height: 24),
+                  _TrendCard(paceTrend: _paceTrend, wpmTrend: _wpmTrend),
                   const SizedBox(height: 24),
                   Text(
                     'Recent Sessions',
@@ -255,6 +326,149 @@ class _SessionExpansionCardState extends State<_SessionExpansionCard> {
     if (isToday) return 'Today, $timeStr';
     if (isYesterday) return 'Yesterday, $timeStr';
     return '${dt.month}/${dt.day}/${dt.year}, $timeStr';
+  }
+}
+
+/// "Actual vs Expected" pace trend — one line, X = session date, Y = avg
+/// ratio of elapsed_ms/expected_ms_snapshot for that session's sentences.
+/// 1.0 (the dashed reference line) is exactly on the expected pace;
+/// points above it read as slower than expected. Framed as "getting
+/// closer to target pace" rather than "behind"/"slow" — same supportive-
+/// tone rule as the rest of this module (see SentenceReportCard).
+class _PaceTrendCard extends StatelessWidget {
+  final List<_PaceRatioPoint> trend;
+
+  const _PaceTrendCard({required this.trend});
+
+  @override
+  Widget build(BuildContext context) {
+    final isSinhala = AppState.language == 'sinhala';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            isSinhala ? 'ඉලක්කගත වේගයට ළං වීම' : 'Getting Closer to Target Pace',
+            style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            isSinhala
+                ? 'සෑම සැසියකම සාමාන්‍ය කියවීමේ වේගය, අපේක්ෂිත වේගයට සාපේක්ෂව'
+                : 'Average reading pace per session, relative to the expected pace',
+            style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          if (trend.length < 3)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Center(
+                child: Text(
+                  isSinhala
+                      ? 'ප්‍රගතිය බැලීමට තවත් සැසි කිහිපයක් සම්පූර්ණ කරන්න'
+                      : 'Complete a few more sessions to see progress',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textHint),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: 160,
+              child: _buildChart(isSinhala),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChart(bool isSinhala) {
+    final spots = [
+      for (var i = 0; i < trend.length; i++) FlSpot(i.toDouble(), trend[i].ratio),
+    ];
+    final ratios = trend.map((p) => p.ratio).toList();
+    final dataMin = ratios.reduce((a, b) => a < b ? a : b);
+    final dataMax = ratios.reduce((a, b) => a > b ? a : b);
+    // Always keep the 1.0 reference line comfortably inside the visible
+    // range, with a bit of padding above/below the data itself.
+    final minY = (dataMin < 1.0 ? dataMin : 1.0) - 0.15;
+    final maxY = (dataMax > 1.0 ? dataMax : 1.0) + 0.15;
+
+    return LineChart(
+      LineChartData(
+        minY: minY < 0 ? 0 : minY,
+        maxY: maxY,
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
+        extraLinesData: ExtraLinesData(
+          horizontalLines: [
+            HorizontalLine(
+              y: 1.0,
+              color: AppColors.textHint.withValues(alpha: 0.5),
+              strokeWidth: 1.5,
+              dashArray: [6, 4],
+              label: HorizontalLineLabel(
+                show: true,
+                alignment: Alignment.topRight,
+                style: GoogleFonts.nunito(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textHint),
+                labelResolver: (_) => isSinhala ? 'නියමිත වේගය' : 'On pace',
+              ),
+            ),
+          ],
+        ),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              interval: 0.5,
+              getTitlesWidget: (value, meta) => Text(
+                value.toStringAsFixed(1),
+                style: GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              getTitlesWidget: (value, meta) {
+                final i = value.round();
+                if (i < 0 || i >= trend.length) return const SizedBox.shrink();
+                final d = trend[i].date;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '${d.month}/${d.day}',
+                    style: GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: AppColors.timedReading,
+            barWidth: 3,
+            dotData: const FlDotData(show: true),
+            belowBarData: BarAreaData(show: true, color: AppColors.timedReading.withValues(alpha: 0.08)),
+          ),
+        ],
+      ),
+    );
   }
 }
 
