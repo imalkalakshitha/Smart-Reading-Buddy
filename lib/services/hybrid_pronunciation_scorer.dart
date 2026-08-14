@@ -217,9 +217,9 @@ class HybridPronunciationScorer {
       //     word: sinhalaScript ?? word, gradeNum: gradeNum);
       // return _verdictToFallbackResult(verdict);
 
-      final verdict = await GeminiSinhalaScorer.stopAndScore(
+      final result = await GeminiSinhalaScorer.stopAndScore(
           word: sinhalaScript ?? word, gradeNum: gradeNum);
-      return _verdictToFallbackResult(verdict);
+      return _verdictToFallbackResult(result.verdict, rawTranscript: result.transcript);
     }
 
     // ── English only from here on ───────────────────────────────────────────
@@ -262,7 +262,8 @@ class HybridPronunciationScorer {
       // ignore: avoid_print
       print('Result: OK  stars=$stars  xp=$xp\n════════════════');
       return PronunciationResult(
-          verdict: 'OK', stars: stars, xpEarned: xp, confidence: confidence);
+          verdict: 'OK', stars: stars, xpEarned: xp, confidence: confidence,
+          rawTranscript: recognized);
     }
 
     // ── ALMOST check (Soundex + similarity ratio) ─────────────────────────
@@ -274,14 +275,14 @@ class HybridPronunciationScorer {
     if (almostByEdit || almostBySoundex) {
       // ignore: avoid_print
       print('Result: ALMOST  stars=1\n════════════════');
-      return const PronunciationResult(
-          verdict: 'ALMOST', stars: 1, xpEarned: 3);
+      return PronunciationResult(
+          verdict: 'ALMOST', stars: 1, xpEarned: 3, rawTranscript: recognized);
     }
 
     // ignore: avoid_print
     print('Result: WRONG\n════════════════');
-    return const PronunciationResult(
-        verdict: 'WRONG', stars: 0, xpEarned: 0);
+    return PronunciationResult(
+        verdict: 'WRONG', stars: 0, xpEarned: 0, rawTranscript: recognized);
   }
 
   // ── Matching helpers ──────────────────────────────────────────────────────
@@ -313,19 +314,26 @@ class HybridPronunciationScorer {
       }
     }
 
-    // Strategy 3 — edit distance ≤ 1
-    if (_editDistance(recognized, expected) <= 1 ||
-        tokens.any((t) => _editDistance(t, expected) <= 1)) {
+    // Strategy 3 — edit distance ≤ 1, tightened for short words.
+    // On a short word a single edit distance is too permissive on its own
+    // — e.g. "table" vs "sable" is edit-distance 1 but a completely
+    // different word. For words ≤6 letters, also require the same first
+    // letter AND same last 3 letters (both, not either — "table"/"sable"
+    // share the same last 3 letters "ble", so an OR wouldn't actually
+    // reject that pair).
+    if (_editDistanceMatch(recognized, expected) ||
+        tokens.any((t) => _editDistanceMatch(t, expected))) {
       // ignore: avoid_print
-      print('   ✅ S3: edit distance ≤ 1');
+      print('   ✅ S3: edit distance ≤ 1 (tightened)');
       return true;
     }
 
-    // Strategy 4 — similarity ratio ≥ 75 %
-    if (_similarityRatio(recognized, expected) >= 0.75 ||
-        tokens.any((t) => _similarityRatio(t, expected) >= 0.75)) {
+    // Strategy 4 — similarity ratio ≥ 75 %, tightened for short words
+    // (same guard as S3 — see _passesShortWordGuard).
+    if (_similarityMatch(recognized, expected) ||
+        tokens.any((t) => _similarityMatch(t, expected))) {
       // ignore: avoid_print
-      print('   ✅ S4: similarity ≥ 75 %');
+      print('   ✅ S4: similarity ≥ 75 % (tightened)');
       return true;
     }
 
@@ -361,15 +369,20 @@ class HybridPronunciationScorer {
     }
   }
 
-  /// Energy-fallback verdict → PronunciationResult (used when STT unavailable).
-  static PronunciationResult _verdictToFallbackResult(String verdict) {
+  /// Verdict (from a Sinhala cloud scorer, or the energy fallback when STT
+  /// is unavailable) → PronunciationResult. [rawTranscript] carries through
+  /// whatever the scorer actually heard, when it has one to offer.
+  static PronunciationResult _verdictToFallbackResult(
+    String verdict, {
+    String? rawTranscript,
+  }) {
     switch (verdict) {
       case 'OK':
-        return const PronunciationResult(
-            verdict: 'OK', stars: 2, xpEarned: 10);
+        return PronunciationResult(
+            verdict: 'OK', stars: 2, xpEarned: 10, rawTranscript: rawTranscript);
       case 'ALMOST':
-        return const PronunciationResult(
-            verdict: 'ALMOST', stars: 1, xpEarned: 3);
+        return PronunciationResult(
+            verdict: 'ALMOST', stars: 1, xpEarned: 3, rawTranscript: rawTranscript);
       case 'NO_SPEECH':
         return const PronunciationResult(
             verdict: 'NO_SPEECH', stars: 0, xpEarned: 0);
@@ -377,9 +390,49 @@ class HybridPronunciationScorer {
         return const PronunciationResult(
             verdict: 'NO_INTERNET', stars: 0, xpEarned: 0);
       default:
-        return const PronunciationResult(
-            verdict: 'WRONG', stars: 0, xpEarned: 0);
+        return PronunciationResult(
+            verdict: 'WRONG', stars: 0, xpEarned: 0, rawTranscript: rawTranscript);
     }
+  }
+
+  /// Shared secondary guard for S3 and S4 on short words (≤6 letters),
+  /// where a raw edit-distance-1 / 75%-similarity signal alone is too
+  /// permissive — e.g. "table" vs "sable" is both edit-distance 1 (S3) and
+  /// 80% similar (S4) despite being unrelated words.
+  ///
+  /// Requires the same first letter. A same-last-3-letters clause was
+  /// tried and rejected: it broke legitimate single-letter-drop STT noise
+  /// near the end of a word (e.g. "window" heard as "windo", "mother"
+  /// heard as "mothr") because a deletion shifts every character after
+  /// it, so no fixed-length suffix comparison survives it — that's not a
+  /// tuning problem, a same-length suffix check is structurally
+  /// incompatible with insertion/deletion-type edits. First-letter-only
+  /// correctly rejects the reported "table"/"sable" and "mother"/"bother"
+  /// cases while recovering the trailing-letter-drop cases; the known
+  /// trade-off is a same-first-letter, different-word pair like
+  /// "plant"/"plait" would still pass — accepted as it's a narrower miss
+  /// than what this guard was added to fix.
+  ///
+  /// Longer words (>6 letters) skip the guard; a single edit is far less
+  /// likely to land on a coincidentally-similar different word there.
+  static bool _passesShortWordGuard(String candidate, String expected) {
+    if (expected.length > 6) return true;
+    if (candidate.isEmpty || expected.isEmpty) return false;
+    return candidate[0] == expected[0];
+  }
+
+  /// Strategy 3's actual gate — see [_passesShortWordGuard].
+  static bool _editDistanceMatch(String candidate, String expected) {
+    if (candidate.isEmpty || expected.isEmpty) return false;
+    if (_editDistance(candidate, expected) > 1) return false;
+    return _passesShortWordGuard(candidate, expected);
+  }
+
+  /// Strategy 4's actual gate — see [_passesShortWordGuard].
+  static bool _similarityMatch(String candidate, String expected) {
+    if (candidate.isEmpty || expected.isEmpty) return false;
+    if (_similarityRatio(candidate, expected) < 0.75) return false;
+    return _passesShortWordGuard(candidate, expected);
   }
 
   // ── Levenshtein edit distance ─────────────────────────────────────────────

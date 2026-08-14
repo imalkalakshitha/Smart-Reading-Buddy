@@ -1,0 +1,6 @@
+{
+  "java.import.gradle.enabled": false,
+  "java.autobuild.enabled": false,
+  "java.import.gradle.wrapper.enabled": false,
+  "java.configuration.updateBuildConfiguration": "disabled"
+}

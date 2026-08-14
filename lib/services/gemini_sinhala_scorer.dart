@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import '../config/api_keys.dart';
+import 'audio_preprocessor.dart';
 
 /// Thrown internally when Gemini responds 429 (rate limited). Carries the
 /// server-suggested wait time so the caller can back off before retrying.
@@ -113,22 +114,31 @@ class GeminiSinhalaScorer {
 
   /// [word] must be the expected word in Sinhala script (NOT the romanised
   /// asset key used elsewhere for filenames).
-  /// Returns 'OK' | 'WRONG' | 'NO_SPEECH' | 'NO_INTERNET'.
-  static Future<String> stopAndScore({
+  /// verdict: 'OK' | 'WRONG' | 'NO_SPEECH' | 'NO_INTERNET'.
+  /// transcript: Gemini's raw transcription, only set when a transcription
+  /// actually happened (null for NO_SPEECH/NO_INTERNET/error cases) — used
+  /// for phonological substitution analysis, see
+  /// phoneme_substitution_analyzer.dart.
+  static Future<({String verdict, String? transcript})> stopAndScore({
     required String word,
     required int    gradeNum,
   }) async {
     final path = await _recorder.stop();
-    if (path == null) return 'WRONG';
+    if (path == null) return (verdict: 'WRONG', transcript: null);
 
     final Uint8List bytes;
     try {
+      final stats = await AudioPreprocessor.process(path);
+      if (stats != null) {
+        // ignore: avoid_print
+        print('🎚️  Preprocess (si)  before: ${stats.$1}  after: ${stats.$2}');
+      }
       bytes = await File(path).readAsBytes();
     } catch (_) {
-      return 'WRONG';
+      return (verdict: 'WRONG', transcript: null);
     }
 
-    if (!_hasSpeech(bytes)) return 'NO_SPEECH';
+    if (!_hasSpeech(bytes)) return (verdict: 'NO_SPEECH', transcript: null);
 
     if (!await _hasInternet()) {
       // ignore: avoid_print
@@ -137,7 +147,7 @@ class GeminiSinhalaScorer {
       print('No internet connection — Gemini unreachable');
       // ignore: avoid_print
       print('════════════════');
-      return 'NO_INTERNET';
+      return (verdict: 'NO_INTERNET', transcript: null);
     }
 
     try {
@@ -155,7 +165,21 @@ class GeminiSinhalaScorer {
       // ignore: avoid_print
       print('════════════════');
 
-      return matched ? 'OK' : 'WRONG';
+      return (verdict: matched ? 'OK' : 'WRONG', transcript: recognized);
+    } on TimeoutException catch (e) {
+      // A slow/unstable connection, not a mispronunciation — the pre-flight
+      // _hasInternet() DNS check above can pass yet the actual request still
+      // stall out. Treat the same as NO_INTERNET rather than silently
+      // scoring the child WRONG for a network hiccup.
+      // ignore: avoid_print
+      print('═══ GEMINI (si) ═══');
+      // ignore: avoid_print
+      print('Expected  : "$word"');
+      // ignore: avoid_print
+      print('Error     : $e (treated as NO_INTERNET — connection too slow)');
+      // ignore: avoid_print
+      print('════════════════');
+      return (verdict: 'NO_INTERNET', transcript: null);
     } catch (e) {
       // ignore: avoid_print
       print('═══ GEMINI (si) ═══');
@@ -165,7 +189,7 @@ class GeminiSinhalaScorer {
       print('Error     : $e');
       // ignore: avoid_print
       print('════════════════');
-      return 'WRONG';
+      return (verdict: 'WRONG', transcript: null);
     }
   }
 
@@ -301,7 +325,7 @@ class GeminiSinhalaScorer {
 
     final response = await http
         .post(uri, headers: {'Content-Type': 'application/json'}, body: body)
-        .timeout(const Duration(seconds: 15));
+        .timeout(const Duration(seconds: 25));
 
     if (response.statusCode == 404) {
       throw _GeminiModelNotFoundException(model);

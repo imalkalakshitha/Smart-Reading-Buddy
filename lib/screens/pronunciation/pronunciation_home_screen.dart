@@ -6,10 +6,59 @@ import '../../data/word_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../models/app_text.dart';
+import '../../models/local_storage.dart';
 import '../../router/app_router.dart';
+import '../../services/practice_suggestion_service.dart';
 
-class PronunciationHomeScreen extends StatelessWidget {
+// Same avatar → emoji mapping used at profile creation (create_profile_screen.dart)
+// — reused here purely as a decorative mascot badge, no new image assets.
+const _avatarEmoji = {
+  'owl': '🦉', 'tiger': '🐯', 'frog': '🐸',
+  'fox': '🦊', 'panda': '🐼', 'lion': '🦁',
+};
+
+class PronunciationHomeScreen extends StatefulWidget {
   const PronunciationHomeScreen({super.key});
+
+  @override
+  State<PronunciationHomeScreen> createState() => _PronunciationHomeScreenState();
+}
+
+class _PronunciationHomeScreenState extends State<PronunciationHomeScreen> {
+  AssignedPractice? _assignedPractice;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAssignedPractice();
+  }
+
+  Future<void> _loadAssignedPractice() async {
+    final assignment = await LocalStorage.getAssignedPractice(AppState.name);
+    if (!mounted) return;
+    setState(() => _assignedPractice = assignment);
+  }
+
+  void _startAssignedPractice() {
+    final assignment = _assignedPractice;
+    if (assignment == null) return;
+    final words = PracticeSuggestionService.wordsForPhoneme(
+      language: assignment.language,
+      phoneme: assignment.phoneme,
+    )..shuffle();
+    if (words.isEmpty) return;
+    Navigator.pushNamed(
+      context,
+      AppRouter.pronunciationSession,
+      arguments: PronunciationSessionArgs(
+        words: words,
+        levelName: AppState.language == 'sinhala' ? 'විශේෂ අභ්‍යාසය' : 'Special Practice',
+        levelKey: 'assigned_practice',
+        isAssignedPractice: true,
+        assignedPhoneme: assignment.phoneme,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +95,14 @@ class PronunciationHomeScreen extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: AppColors.pronunciation.withOpacity(0.12),
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.pronunciation.withOpacity(0.16),
+                      AppColors.pronunciation.withOpacity(0.06),
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: AppColors.pronunciation.withOpacity(0.3),
@@ -55,7 +111,30 @@ class PronunciationHomeScreen extends StatelessWidget {
                 ),
                 child: Row(
                   children: [
-                    const Text('🎤', style: TextStyle(fontSize: 48)),
+                    Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        const Text('🎤', style: TextStyle(fontSize: 48)),
+                        Positioned(
+                          bottom: -4,
+                          right: -6,
+                          child: Container(
+                            padding: const EdgeInsets.all(3),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: const [
+                                BoxShadow(color: AppColors.shadow, blurRadius: 4, offset: Offset(0, 2)),
+                              ],
+                            ),
+                            child: Text(
+                              _avatarEmoji[AppState.avatar] ?? '🦉',
+                              style: const TextStyle(fontSize: 18),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(width: 16),
                     Expanded(
                       child: Column(
@@ -93,6 +172,14 @@ class PronunciationHomeScreen extends StatelessWidget {
                 ),
               ).animate().fadeIn(delay: 50.ms).slideY(begin: 0.2),
 
+              if (_assignedPractice != null) ...[
+                const SizedBox(height: 20),
+                _AssignedPracticeBanner(
+                  assignment: _assignedPractice!,
+                  onTap: _startAssignedPractice,
+                ).animate().fadeIn(delay: 80.ms).slideY(begin: 0.2),
+              ],
+
               const SizedBox(height: 28),
               Text(
                 AppState.language == 'sinhala' ? 'මට්ටමක් තෝරන්න' : 'Choose a level',
@@ -126,7 +213,10 @@ class PronunciationHomeScreen extends StatelessWidget {
                           ),
                         );
                       },
-                    ).animate(delay: (150 + i * 80).ms).fadeIn().slideY(begin: 0.3);
+                    ).animate(delay: (150 + i * 80).ms)
+                        .fadeIn()
+                        .slideY(begin: 0.3)
+                        .scale(begin: const Offset(0.95, 0.95), curve: Curves.easeOutBack);
                   },
                 ),
               ),
@@ -135,6 +225,84 @@ class PronunciationHomeScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Highlighted entry point shown only when a parent has assigned this
+/// child a specific sound to practice (LocalStorage.getAssignedPractice).
+/// Visually distinct from the regular level cards so it reads as a
+/// special pick, not just another level.
+class _AssignedPracticeBanner extends StatelessWidget {
+  final AssignedPractice assignment;
+  final VoidCallback onTap;
+
+  const _AssignedPracticeBanner({required this.assignment, required this.onTap});
+
+  String _displaySound() {
+    if (assignment.language == 'si') {
+      return PracticeSuggestionService.sinhalaScriptFor(assignment.phoneme) ??
+          assignment.phoneme;
+    }
+    return assignment.phoneme.toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isSinhala = AppState.language == 'sinhala';
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppColors.primary, AppColors.primaryDark],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: const [
+            BoxShadow(color: AppColors.shadow, blurRadius: 14, offset: Offset(0, 6)),
+          ],
+        ),
+        child: Row(
+          children: [
+            const Text('🌟', style: TextStyle(fontSize: 40))
+                .animate(onPlay: (c) => c.repeat(reverse: true))
+                .scaleXY(begin: 1.0, end: 1.18, duration: 700.ms, curve: Curves.easeInOut),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isSinhala ? 'ඔබ වෙනුවෙන් විශේෂ අභ්‍යාසයක්! 🌟' : 'Special practice picked for you! 🌟',
+                    style: GoogleFonts.nunito(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    isSinhala
+                        ? "'${_displaySound()}' ශබ්දය පුහුණු කරන්න"
+                        : "Practice the '${_displaySound()}' sound",
+                    style: GoogleFonts.nunito(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white.withOpacity(0.95),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white, size: 20),
+          ],
+        ),
+      ),
+    ).animate(onPlay: (c) => c.repeat())
+        .shimmer(duration: 2200.ms, delay: 600.ms, color: Colors.white.withOpacity(0.25));
   }
 }
 
@@ -157,6 +325,7 @@ class _LevelCardState extends State<_LevelCard>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<double> _scale;
+  late Animation<double> _shadowBlur;
 
   @override
   void initState() {
@@ -166,6 +335,9 @@ class _LevelCardState extends State<_LevelCard>
       duration: const Duration(milliseconds: 100),
     );
     _scale = Tween(begin: 1.0, end: 0.96).animate(_ctrl);
+    // Shadow softens/tightens on press, alongside the scale, for a more
+    // tactile "pressed down" feel — purely visual, doesn't touch onTap.
+    _shadowBlur = Tween(begin: 14.0, end: 6.0).animate(_ctrl);
   }
 
   @override
@@ -197,21 +369,29 @@ class _LevelCardState extends State<_LevelCard>
       },
       onTapCancel: () => _ctrl.reverse(),
       child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        animation: _ctrl,
+        builder: (_, child) => Transform.scale(
+          scale: _scale.value,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.shadow,
+                  blurRadius: _shadowBlur.value,
+                  offset: Offset(0, _shadowBlur.value * 0.4),
+                ),
+              ],
+            ),
+            child: child,
+          ),
+        ),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(color: AppColors.divider, width: 0.5),
-            boxShadow: const [
-              BoxShadow(
-                color: AppColors.shadow,
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              ),
-            ],
           ),
           child: Row(
             children: [

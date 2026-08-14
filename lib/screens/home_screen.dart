@@ -113,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
           } else if (i == 2) {
             Navigator.pushNamed(context, AppRouter.eduplay);
           } else if (i == 3) {
-            Navigator.pushNamed(context, AppRouter.reading);
+            Navigator.pushNamed(context, AppRouter.timedReading);
           } else if (i == 4) {
             Navigator.pushNamed(context, AppRouter.writing);
           } else {
@@ -200,9 +200,9 @@ class _HomeContent extends StatelessWidget {
                 icon: '📖',
                 title: AppText.reading,
                 description: AppText.readingDesc,
-                gradientColors: const [Color(0xFF3498DB), Color(0xFF2471A3)],
+                gradientColors: const [Color(0xFF16A085), Color(0xFF0E7C63)],
                 delay: 460,
-                onTap: () => Navigator.pushNamed(context, AppRouter.reading),
+                onTap: () => Navigator.pushNamed(context, AppRouter.timedReading),
               ),
               _ActivityCard(
                 icon: '✏️',
@@ -219,8 +219,6 @@ class _HomeContent extends StatelessWidget {
     );
   }
 }
-
-// ── Timed Reading Banner (unused — no longer linked from home screen) ────────
 
 // ── Animated Header ───────────────────────────────────────────────────────────
 

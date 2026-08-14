@@ -6,6 +6,7 @@ import '../../data/pronunciation_args.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../models/app_text.dart';
+import '../../models/local_storage.dart';
 import '../../router/app_router.dart';
 
 class SessionCompleteScreen extends StatefulWidget {
@@ -28,6 +29,14 @@ class _SessionCompleteScreenState extends State<SessionCompleteScreen>
       vsync: this,
       duration: const Duration(milliseconds: 1800),
     )..forward();
+
+    // Special assigned-practice sessions clear their flag on completion so
+    // the home screen banner doesn't reappear until the parent assigns a
+    // new one. Regular sessions never set this flag, so this is a no-op
+    // for the existing flow.
+    if (widget.args.isAssignedPractice) {
+      LocalStorage.clearAssignedPractice(AppState.name);
+    }
   }
 
   @override

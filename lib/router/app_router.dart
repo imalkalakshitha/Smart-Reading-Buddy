@@ -21,11 +21,17 @@ import '../screens/writing/letter_tracing_screen.dart';
 import '../screens/writing/word_tracing_screen.dart';
 import '../screens/writing/writing_progress_screen.dart';
 import '../screens/calibration/calibration_screen.dart';
+import '../screens/timed_reading/timed_reading_home_screen.dart';
+import '../screens/timed_reading/reading_screen.dart';
+import '../screens/timed_reading/miscue_marking_screen.dart';
+import '../screens/timed_reading/results_screen.dart';
+import '../screens/timed_reading/repeated_reading_challenge_screen.dart';
 import '../models/local_storage.dart';
 import '../data/pronunciation_args.dart';
 import '../data/reading_data.dart';
 import '../data/encoding_data.dart';
 import '../data/writing_data.dart';
+import '../data/timed_reading_data.dart';
 
 class AppRouter {
   static const splash               = '/';
@@ -51,6 +57,11 @@ class AppRouter {
   static const writingProgress     = '/writing/progress';
   static const calibration         = '/calibration';
   static const eduplay             = '/eduplay';
+  static const timedReading           = '/timed-reading';
+  static const timedReadingSession    = '/timed-reading/session';
+  static const timedReadingMiscue     = '/timed-reading/miscue';
+  static const timedReadingResults    = '/timed-reading/results';
+  static const timedReadingChallenge  = '/timed-reading/challenge';
 
   static Map<String, WidgetBuilder> get routes => {
         splash:        (_) => const SplashScreen(),
@@ -65,6 +76,7 @@ class AppRouter {
         writing:            (_) => const WritingHomeScreen(),
         calibration:        (_) => const CalibrationScreen(),
         eduplay:            (_) => const EduPlayJourneyScreen(),
+        timedReading:       (_) => const TimedReadingHomeScreen(),
       };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {
@@ -108,6 +120,22 @@ class AppRouter {
       case writingProgress:
         final args = settings.arguments as WritingArgs;
         return _slide(WritingProgressScreen(args: args));
+
+      case timedReadingSession:
+        final args = settings.arguments as ReadingScreenArgs;
+        return _slide(ReadingScreen(args: args));
+
+      case timedReadingMiscue:
+        final args = settings.arguments as MiscueMarkingArgs;
+        return _slide(MiscueMarkingScreen(args: args));
+
+      case timedReadingResults:
+        final args = settings.arguments as ResultsScreenArgs;
+        return _fade(ResultsScreen(args: args));
+
+      case timedReadingChallenge:
+        final args = settings.arguments as ChallengeScreenArgs;
+        return _slide(RepeatedReadingChallengeScreen(args: args));
     }
     return null;
   }

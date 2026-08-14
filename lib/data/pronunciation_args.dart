@@ -4,11 +4,20 @@ class PronunciationSessionArgs {
   final List<WordItem> words;
   final String levelName;
   final String levelKey;
+  // True only for a session launched from the "Assigned Practice" banner.
+  // Regular level-selection sessions never set this, so their behavior is
+  // completely unchanged.
+  final bool isAssignedPractice;
+  // The raw phoneme token this session was assigned for (only set when
+  // isAssignedPractice is true) — carried through to sessions.assigned_phoneme.
+  final String? assignedPhoneme;
 
   const PronunciationSessionArgs({
     required this.words,
     required this.levelName,
     required this.levelKey,
+    this.isAssignedPractice = false,
+    this.assignedPhoneme,
   });
 }
 
@@ -20,6 +29,7 @@ class SessionCompleteArgs {
   final int durationSeconds;
   final String levelName;
   final List<String> hardPhonemes;
+  final bool isAssignedPractice;
 
   const SessionCompleteArgs({
     required this.correct,
@@ -29,5 +39,6 @@ class SessionCompleteArgs {
     required this.durationSeconds,
     required this.levelName,
     required this.hardPhonemes,
+    this.isAssignedPractice = false,
   });
 }

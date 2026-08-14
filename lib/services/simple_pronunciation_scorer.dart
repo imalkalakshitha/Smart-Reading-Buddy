@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'audio_preprocessor.dart';
 
 // ignore: constant_identifier_names
 const String RESULT_NO_SPEECH = 'NO_SPEECH';
@@ -58,6 +59,11 @@ class SimplePronunciationScorer {
     if (path == null) return null;
 
     try {
+      final stats = await AudioPreprocessor.process(path);
+      if (stats != null) {
+        // ignore: avoid_print
+        print('🎚️  Preprocess (calibration)  before: ${stats.$1}  after: ${stats.$2}');
+      }
       final childBytes   = await File(path).readAsBytes();
       final childSamples = _readWav(childBytes);
 
@@ -94,6 +100,11 @@ class SimplePronunciationScorer {
     if (path == null) return 'WRONG';
 
     try {
+      final stats = await AudioPreprocessor.process(path);
+      if (stats != null) {
+        // ignore: avoid_print
+        print('🎚️  Preprocess  before: ${stats.$1}  after: ${stats.$2}');
+      }
       final childBytes   = await File(path).readAsBytes();
       final childSamples = _readWav(childBytes);
 

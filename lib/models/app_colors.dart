@@ -22,6 +22,7 @@ class AppColors {
   static const Color wordBuilding   = Color(0xFFF9CA24); // yellow
   static const Color reading        = Color(0xFF3498DB); // blue
   static const Color writing        = Color(0xFF9B59B6); // purple
+  static const Color timedReading   = Color(0xFF16A085); // teal
 
   // Feedback Colors
   static const Color success        = Color(0xFF2ECC71);

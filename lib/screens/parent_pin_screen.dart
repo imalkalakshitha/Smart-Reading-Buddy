@@ -3,7 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/app_colors.dart';
+import '../models/app_state.dart';
 import '../models/app_text.dart';
+import '../models/local_storage.dart';
+import 'parent/parent_dashboard_screen.dart';
 
 const _parentPin = '1234';
 
@@ -61,11 +64,22 @@ class _ParentPinScreenState extends State<ParentPinScreen>
     }
   }
 
-  void _validate(String entered) {
+  Future<void> _validate(String entered) async {
     if (entered == _parentPin) {
+      // AppState.name is only set once a child's own PIN has been
+      // validated (see child_pin_screen.dart) — this parent flow can be
+      // reached without that ever happening (profile-select screen's
+      // "Parent" button skips straight here), so it can't be trusted as
+      // the child to show analytics for. Resolve explicitly instead.
       if (!mounted) return;
-      Navigator.pop(context);
-      _showParentDashboard();
+      final profileName = await _resolveProfileName();
+      if (profileName == null || !mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ParentDashboardScreen(profileName: profileName),
+        ),
+      );
     } else {
       HapticFeedback.heavyImpact();
       setState(() {
@@ -76,12 +90,52 @@ class _ParentPinScreenState extends State<ParentPinScreen>
     }
   }
 
-  void _showParentDashboard() {
-    showModalBottomSheet(
+  /// Returns the child profile to show analytics for, or null if there's
+  /// none to pick (caller should bail out without navigating).
+  Future<String?> _resolveProfileName() async {
+    if (AppState.name.isNotEmpty) return AppState.name;
+
+    final profiles = await LocalStorage.getAllProfiles();
+    if (!mounted) return null;
+
+    if (profiles.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No child profiles yet')),
+      );
+      return null;
+    }
+    if (profiles.length == 1) return profiles.first.name;
+
+    return showModalBottomSheet<String>(
       context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _ParentDashboard(),
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 16),
+            Text(
+              'View progress for which child?',
+              style: GoogleFonts.nunito(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final p in profiles)
+              ListTile(
+                title: Text(p.name, style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
+                subtitle: Text(p.grade),
+                onTap: () => Navigator.of(context).pop(p.name),
+              ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
     );
   }
 
@@ -297,92 +351,3 @@ class _NumKeyState extends State<_NumKey> with SingleTickerProviderStateMixin {
   }
 }
 
-// ── Parent dashboard sheet ────────────────────────────────────────────────────
-
-class _ParentDashboard extends StatelessWidget {
-  const _ParentDashboard();
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      (Icons.swap_horiz_rounded, AppText.switchProfile),
-      (Icons.language_rounded, AppText.changeLanguage),
-      (Icons.multitrack_audio_rounded, AppText.parentDashboard),
-      (Icons.edit_rounded, 'Writing Progress'),
-      (Icons.auto_stories_rounded, 'Word Building Journey'),
-      (Icons.settings_rounded, AppText.settings),
-    ];
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.divider,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(height: 8),
-            ...items.indexed.map((entry) {
-              final i = entry.$1;
-              final item = entry.$2;
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  SizedBox(
-                    height: 60,
-                    child: ListTile(
-                      contentPadding:
-                          const EdgeInsets.symmetric(horizontal: 24),
-                      leading: Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          color: AppColors.primarySurface,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Icon(item.$1,
-                            color: AppColors.primary, size: 22),
-                      ),
-                      title: Text(
-                        item.$2,
-                        style: GoogleFonts.nunito(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Coming soon')),
-                        );
-                      },
-                    ),
-                  ),
-                  if (i < items.length - 1)
-                    Divider(
-                        height: 1,
-                        indent: 24,
-                        endIndent: 24,
-                        color: AppColors.divider),
-                ],
-              );
-            }),
-            const SizedBox(height: 16),
-          ],
-        ),
-      ),
-    );
-  }
-}

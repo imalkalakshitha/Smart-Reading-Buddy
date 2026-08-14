@@ -44,9 +44,42 @@ class UserProfile {
       );
 }
 
+/// A single "assigned practice" flag set by a parent for one child, from
+/// the Parent Dashboard's "Assign Practice" button. Purely local, no sync —
+/// at most one active assignment per profile (assigning again just
+/// overwrites; completing the resulting session clears it).
+class AssignedPractice {
+  final String profileName;
+  final String phoneme;
+  final String language; // 'en' | 'si'
+  final int assignedAt; // epoch millis
+
+  const AssignedPractice({
+    required this.profileName,
+    required this.phoneme,
+    required this.language,
+    required this.assignedAt,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'profileName': profileName,
+        'phoneme': phoneme,
+        'language': language,
+        'assignedAt': assignedAt,
+      };
+
+  factory AssignedPractice.fromJson(Map<String, dynamic> json) => AssignedPractice(
+        profileName: json['profileName'] as String,
+        phoneme: json['phoneme'] as String,
+        language: json['language'] as String,
+        assignedAt: json['assignedAt'] as int,
+      );
+}
+
 class LocalStorage {
   static const _profilesKey = 'profiles';
   static const _languageKey = 'language';
+  static const _assignedPracticeKey = 'assigned_practice'; // Map<profileName, AssignedPractice.toJson()>
 
   // ── Language ──────────────────────────────────────────
   static Future<void> saveLanguage(String language) async {
@@ -135,5 +168,61 @@ class LocalStorage {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
         _profilesKey, jsonEncode(profiles.map((p) => p.toJson()).toList()));
+  }
+
+  // ── Assigned practice ───────────────────────────────────
+
+  static Future<Map<String, dynamic>> _readAssignedPracticeMap() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_assignedPracticeKey);
+      if (raw == null) return {};
+      return jsonDecode(raw) as Map<String, dynamic>;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void> _writeAssignedPracticeMap(Map<String, dynamic> map) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_assignedPracticeKey, jsonEncode(map));
+  }
+
+  /// Sets (or overwrites) the active assigned-practice flag for [profileName].
+  static Future<void> setAssignedPractice({
+    required String profileName,
+    required String phoneme,
+    required String language,
+  }) async {
+    final map = await _readAssignedPracticeMap();
+    map[profileName] = AssignedPractice(
+      profileName: profileName,
+      phoneme: phoneme,
+      language: language,
+      assignedAt: DateTime.now().millisecondsSinceEpoch,
+    ).toJson();
+    await _writeAssignedPracticeMap(map);
+  }
+
+  /// Returns the active assignment for [profileName], or null if none.
+  static Future<AssignedPractice?> getAssignedPractice(String profileName) async {
+    final map = await _readAssignedPracticeMap();
+    final raw = map[profileName];
+    if (raw == null) return null;
+    try {
+      return AssignedPractice.fromJson(raw as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Clears the active assignment for [profileName] — called once the
+  /// resulting practice session is completed, so the banner doesn't keep
+  /// reappearing until the parent assigns something new.
+  static Future<void> clearAssignedPractice(String profileName) async {
+    final map = await _readAssignedPracticeMap();
+    if (map.remove(profileName) != null) {
+      await _writeAssignedPracticeMap(map);
+    }
   }
 }

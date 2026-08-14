@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import '../../models/pronunciation_result.dart';
 import '../../services/coaching_strategy.dart';
 import '../../services/gemini_sinhala_scorer.dart';
 import '../../services/hybrid_pronunciation_scorer.dart';
+import '../../services/phoneme_substitution_analyzer.dart';
 import '../../services/session_logger.dart';
 import '../../widgets/phoneme_image_widget.dart';
 
@@ -29,7 +31,24 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     with TickerProviderStateMixin {
   int _wordIndex = 0;
   int _attempt = 0;
+  // Counts WRONG + ALMOST + NO_SPEECH together on the current word. Once it
+  // hits 4, retrying no longer auto-hides the result overlay — a persistent
+  // "Skip this word" button appears instead (tap required, not automatic).
+  int _failCount = 0;
+  static const int _maxFailsBeforeSkip = 3;
   bool _recording = false;
+  Timer? _autoStopTimer;
+  static const _maxRecordingDuration = Duration(seconds: 7);
+
+  // ── Voice-activity auto-stop (VAD) ────────────────────────────────────
+  // Amplitude-threshold only — no transcription happens during recording,
+  // this just detects speech-then-silence to time the auto-stop.
+  static const double _vadSpeechThreshold  = 0.12;
+  static const double _vadSilenceThreshold = 0.06;
+  static const Duration _vadSilenceGrace   = Duration(milliseconds: 900);
+  StreamSubscription<double>? _vadSub;
+  bool _vadHasSpokenOnce = false;
+  DateTime? _vadSilenceStartedAt;
   bool _scoring = false;
   PronunciationResult?  _lastResult;
   bool                  _showResult  = false;
@@ -41,6 +60,10 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
   late final AudioPlayer _audioPlayer;
   bool _playing = false;
   final List<Map<String, dynamic>> _allAttempts = [];
+  // One entry per WRONG/ALMOST attempt that yielded at least one detected
+  // substitution — see PhonemeSubstitutionAnalyzer.
+  final List<({String word, String language, List<({String expected, String produced})> substitutions})>
+      _allSubstitutions = [];
   int _correct = 0;
   int _almost = 0;
   int _wrong = 0;
@@ -70,6 +93,8 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
 
   @override
   void dispose() {
+    _autoStopTimer?.cancel();
+    _vadSub?.cancel();
     _audioPlayer.dispose();
     _waveCtrl.dispose();
     _resultCtrl.dispose();
@@ -94,18 +119,53 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     }
   }
 
-  void _onHoldStart(PointerDownEvent _) {
-    if (_showResult || _scoring) return;
+  void _onMicTap() {
+    // Single-tap-to-start only — recording stops itself via VAD auto-stop
+    // (or the 7s ceiling), so a tap while already recording is a no-op.
+    if (_showResult || _scoring || _recording) return;
     setState(() => _recording = true);
+    _vadHasSpokenOnce   = false;
+    _vadSilenceStartedAt = null;
     _waveCtrl.repeat();
     final lang = AppState.language == 'sinhala' ? 'si' : 'en';
     HybridPronunciationScorer.startRecording(lang: lang);
+    _autoStopTimer?.cancel();
+    _autoStopTimer = Timer(_maxRecordingDuration, _stopAndScore);
+    _vadSub?.cancel();
+    _vadSub = HybridPronunciationScorer.amplitudeStream.listen(_onVadSample);
   }
 
-  void _onHoldEnd(PointerEvent _) => _stopAndScore();
+  /// VAD sample handler — amplitude-threshold only, no transcription.
+  /// Arms once the child has spoken at least once (so pre-speech room
+  /// noise/silence never triggers auto-stop), then auto-stops after
+  /// [_vadSilenceGrace] of continuous silence.
+  void _onVadSample(double amplitude) {
+    if (!_recording) return;
+
+    if (amplitude >= _vadSpeechThreshold) {
+      _vadHasSpokenOnce = true;
+      _vadSilenceStartedAt = null;
+      return;
+    }
+
+    if (!_vadHasSpokenOnce) return; // still waiting for the child to start
+
+    if (amplitude < _vadSilenceThreshold) {
+      _vadSilenceStartedAt ??= DateTime.now();
+      if (DateTime.now().difference(_vadSilenceStartedAt!) >= _vadSilenceGrace) {
+        _stopAndScore();
+      }
+    } else {
+      // Between the two thresholds — ambiguous, don't count as silence.
+      _vadSilenceStartedAt = null;
+    }
+  }
 
   Future<void> _stopAndScore() async {
     if (!_recording) return;
+    _autoStopTimer?.cancel();
+    _vadSub?.cancel();
+    _vadSub = null;
     _waveCtrl.stop();
     _waveCtrl.reset();
     setState(() {
@@ -125,13 +185,29 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     if (!mounted) return;
     setState(() => _scoring = false);
 
-    // No speech detected — show a gentle prompt, don't count as an attempt.
+    // No speech detected — doesn't count toward PEPA/_attempt (no data was
+    // captured to score), but does count toward the fail-then-skip total,
+    // same as WRONG/ALMOST.
     if (result.verdict == 'NO_SPEECH') {
-      setState(() { _lastResult = result; _showResult = true; });
-      _resultCtrl.forward(from: 0);
-      Future.delayed(const Duration(milliseconds: 1800), () {
-        if (mounted) setState(() => _showResult = false);
+      setState(() {
+        _failCount++;
+        _lastResult = result;
+        _showResult = true;
       });
+      _resultCtrl.forward(from: 0);
+      if (_failCount < _maxFailsBeforeSkip) {
+        Future.delayed(const Duration(milliseconds: 1800), () {
+          if (mounted) setState(() => _showResult = false);
+        });
+      } else {
+        // Fail cap reached on a NO_SPEECH attempt — this word may have zero
+        // scored attempts at all (e.g. all 4 fails were NO_SPEECH), so
+        // there'd otherwise be nothing to tally it as. Mirrors the
+        // WRONG/ALMOST path below, which records immediately on reaching
+        // the cap rather than waiting for the Skip tap.
+        _recordFinalResult(result);
+      }
+      // else: leave the overlay up with a Skip button — see _buildResultOverlay.
       return;
     }
 
@@ -155,6 +231,19 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       'dtw_score':      scoreMap[result.verdict] ?? 0.25,
     });
 
+    // Phonological substitution analysis — only meaningful for a genuine
+    // mismatch, and only when the scorer actually heard something.
+    if (result.verdict == 'WRONG' || result.verdict == 'ALMOST') {
+      final subs = PhonemeSubstitutionAnalyzer.extract(
+        expectedPhonemes: _currentWord.phonemes,
+        rawTranscript:    result.rawTranscript,
+        language:         lang,
+      );
+      if (subs.isNotEmpty) {
+        _allSubstitutions.add((word: _currentWord.word, language: lang, substitutions: subs));
+      }
+    }
+
     // ── Coaching ─────────────────────────────────────────────────────────────
     final coaching = result.verdict == 'OK'
         ? CoachingStrategy.forPass(lang)
@@ -163,19 +252,22 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
             lang: lang,
           );
 
-    final canAdvance = result.verdict == 'OK' || _attempt >= 2;
-
     setState(() {
+      if (result.verdict != 'OK') _failCount++;
       _lastResult = result;
       _showResult = true;
       _coaching   = coaching;
     });
+    // Reaching the fail cap no longer auto-advances anything — it just
+    // reveals a "Skip this word" button the child has to tap (see
+    // _buildResultOverlay). OK always lets the child continue (unchanged).
+    final canAdvance = result.verdict == 'OK' || _failCount >= _maxFailsBeforeSkip;
     _resultCtrl.forward(from: 0);
 
     if (canAdvance) {
       _recordFinalResult(result);
       // On final failed attempt: expand VMG + auto-play reference so child
-      // can see/hear the correct pronunciation before tapping Next.
+      // can see/hear the correct pronunciation before tapping Skip.
       if (result.verdict != 'OK') {
         if (coaching.autoExpandVMG) {
           setState(() => _vmgExpanded = true);
@@ -228,6 +320,7 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       setState(() {
         _wordIndex++;
         _attempt    = 0;
+        _failCount  = 0;
         _showResult  = false;
         _lastResult  = null;
         _vmgExpanded = false;
@@ -268,6 +361,8 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
         correct:         _correct,
         almost:          _almost,
         wrong:           _wrong,
+        isAssignedPractice: widget.args.isAssignedPractice,
+        assignedPhoneme:    widget.args.assignedPhoneme,
       );
       await SessionLogger.saveWordAttempts(sessionId, _allAttempts);
       // PEPA: log phoneme-level error data for parent analytics.
@@ -277,7 +372,29 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
         language:     AppState.language == 'sinhala' ? 'si' : 'en',
         wordAttempts: _allAttempts,
       );
-    } catch (_) {}
+      debugPrint('[PEPA] saved sessionId=$sessionId profileName="${AppState.name}" '
+          'wordAttempts=${_allAttempts.length}');
+
+      // Phonological substitution patterns — one write per WRONG/ALMOST
+      // word that produced at least one detected substitution.
+      for (final entry in _allSubstitutions) {
+        await SessionLogger.savePhonemeSubstitutions(
+          sessionId:     sessionId,
+          profileName:   AppState.name,
+          word:          entry.word,
+          language:      entry.language,
+          substitutions: entry.substitutions,
+        );
+      }
+      debugPrint('[PEPA] saved ${_allSubstitutions.length} substitution-bearing '
+          'word attempts for sessionId=$sessionId');
+    } catch (e, st) {
+      // Previously silent — a failure here meant PEPA data for this session
+      // never reached SQLite with no trace, making it look like the parent
+      // dashboard's query was broken when the real cause was a write that
+      // never happened.
+      debugPrint('[PEPA] FAILED to persist session for profileName="${AppState.name}": $e\n$st');
+    }
 
     if (!mounted) return;
     Navigator.pushReplacementNamed(
@@ -291,6 +408,7 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
         durationSeconds: _stopwatch.elapsed.inSeconds,
         levelName: widget.args.levelName,
         hardPhonemes: top,
+        isAssignedPractice: widget.args.isAssignedPractice,
       ),
     );
   }
@@ -668,11 +786,9 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
 
           const SizedBox(height: 20),
 
-          // Hold-to-speak button
-          Listener(
-            onPointerDown:   _onHoldStart,
-            onPointerUp:     _onHoldEnd,
-            onPointerCancel: _onHoldEnd,
+          // Tap-to-speak button
+          GestureDetector(
+            onTap: _onMicTap,
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 120,
@@ -729,7 +845,7 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          Icons.mic_rounded,
+                          _recording ? Icons.stop_rounded : Icons.mic_rounded,
                           size: 42,
                           color: _recording
                               ? Colors.white
@@ -738,8 +854,8 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                         const SizedBox(height: 4),
                         Text(
                           _recording
-                              ? (AppState.language == 'sinhala' ? 'කතා කරන්න' : 'Speaking...')
-                              : (AppState.language == 'sinhala' ? 'ස්පර්ශ කර කතා කරන්' : 'Hold & Speak'),
+                              ? (AppState.language == 'sinhala' ? 'අහගෙන ඉන්නවා...' : 'Listening...')
+                              : (AppState.language == 'sinhala' ? 'ස්පර්ශ කර කතා කරන්' : 'Tap to speak'),
                           textAlign: TextAlign.center,
                           style: GoogleFonts.nunito(
                             fontSize: 11,
@@ -774,47 +890,71 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
   Widget _buildResultOverlay() {
     final result = _lastResult!;
 
-    // ── No speech detected — show prompt and auto-dismiss ─────────────────────
+    // ── No speech detected — auto-dismisses to retry, or shows Skip once
+    // the combined fail count (WRONG + ALMOST + NO_SPEECH) hits the cap ──
     if (result.verdict == 'NO_SPEECH') {
+      final showSkip = _failCount >= _maxFailsBeforeSkip;
       return Positioned.fill(
-        child: Container(
-          color: Colors.black.withValues(alpha: 0.45),
-          child: Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 32),
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('🎤', style: TextStyle(fontSize: 64)),
-                  const SizedBox(height: 12),
-                  Text(
-                    AppState.language == 'sinhala'
-                        ? 'කරුණාකර වචනය කියන්න!'
-                        : 'Please say the word!',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.orange,
+        child: GestureDetector(
+          onTap: showSkip ? _advance : null,
+          child: Container(
+            color: Colors.black.withValues(alpha: 0.45),
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('🎤', style: TextStyle(fontSize: 64)),
+                    const SizedBox(height: 12),
+                    Text(
+                      AppState.language == 'sinhala'
+                          ? 'කරුණාකර වචනය කියන්න!'
+                          : 'Please say the word!',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.orange,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    AppState.language == 'sinhala'
-                        ? 'ශබ්දය අපට ඇසෙන්නේ නැත'
-                        : "We couldn't hear you",
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
+                    const SizedBox(height: 8),
+                    Text(
+                      AppState.language == 'sinhala'
+                          ? 'ශබ්දය අපට ඇසෙන්නේ නැත'
+                          : "We couldn't hear you",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                    if (showSkip) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 28, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.wrong,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Text(
+                          AppState.language == 'sinhala' ? 'මෙය මඟහරින්න ⏭' : 'Skip this word ⏭',
+                          style: GoogleFonts.nunito(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),
@@ -886,7 +1026,8 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
             ? (AppState.language == 'sinhala' ? 'ආසන්නයි!' : 'Almost!')
             : (AppState.language == 'sinhala' ? 'නැවත උත්සාහ කරන්න' : 'Try Again');
 
-    final canAdvance = isOk || _attempt >= 2;
+    final canAdvance = isOk || _failCount >= _maxFailsBeforeSkip;
+    final isSkip = canAdvance && !isOk;
 
     return Positioned.fill(
       child: GestureDetector(
@@ -954,9 +1095,11 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
                         borderRadius: BorderRadius.circular(30),
                       ),
                       child: Text(
-                        _wordIndex < _totalWords - 1
-                            ? (AppState.language == 'sinhala' ? 'ඊළඟ →' : 'Next →')
-                            : (AppState.language == 'sinhala' ? 'අවසන් කරන්න ✓' : 'Finish ✓'),
+                        isSkip
+                            ? (AppState.language == 'sinhala' ? 'මෙය මඟහරින්න ⏭' : 'Skip this word ⏭')
+                            : (_wordIndex < _totalWords - 1
+                                ? (AppState.language == 'sinhala' ? 'ඊළඟ →' : 'Next →')
+                                : (AppState.language == 'sinhala' ? 'අවසන් කරන්න ✓' : 'Finish ✓')),
                         style: GoogleFonts.nunito(
                           fontSize: 18,
                           fontWeight: FontWeight.w800,
