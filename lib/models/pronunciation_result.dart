@@ -12,11 +12,21 @@ class PronunciationResult {
   // phoneme_substitution_analyzer.dart) — not persisted/used otherwise.
   final String? rawTranscript;
 
+  // Persistent-storage path to the child's own recorded WAV for this
+  // attempt — English only, and only ever set when the verdict was
+  // WRONG (see HybridPronunciationScorer's English path: the parallel
+  // `record`-package capture running alongside on-device STT is deleted
+  // immediately for OK/ALMOST/NO_SPEECH attempts, kept only for WRONG,
+  // per the storage-cleanup policy). Null for every other case —
+  // Sinhala, DTW/energy-fallback, and any non-WRONG English attempt.
+  final String? audioPath;
+
   const PronunciationResult({
     required this.verdict,
     required this.stars,
     required this.xpEarned,
     this.confidence = 0.0,
     this.rawTranscript,
+    this.audioPath,
   });
 }

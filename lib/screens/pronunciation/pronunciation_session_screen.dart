@@ -45,7 +45,16 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
   // this just detects speech-then-silence to time the auto-stop.
   static const double _vadSpeechThreshold  = 0.12;
   static const double _vadSilenceThreshold = 0.06;
-  static const Duration _vadSilenceGrace   = Duration(milliseconds: 900);
+  // TEST VALUE — was 900ms. Diagnosing error_no_match/NO_SPEECH on short
+  // single-syllable words (e.g. "pen") despite loud, clearly-captured
+  // speech (peak=1.0): the leading theory is that .stop() fires too soon
+  // after a short word for Android's SpeechRecognizer to finalize
+  // cleanly (the audio was captured fine — this is about recognizer
+  // finalization timing, not VAD missing the word). Bumped to 1300ms as
+  // a live-device test; revert to 900ms if this doesn't fix it, or keep
+  // permanently if it does. Not the same constant as Timed Reading's own
+  // 2500ms silenceGrace (timed_reading_speech_bridge.dart) — untouched.
+  static const Duration _vadSilenceGrace   = Duration(milliseconds: 1300);
   StreamSubscription<double>? _vadSub;
   bool _vadHasSpokenOnce = false;
   DateTime? _vadSilenceStartedAt;
@@ -229,6 +238,10 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       'result':         result.verdict,
       'attempt_number': _attempt + 1,
       'dtw_score':      scoreMap[result.verdict] ?? 0.25,
+      // Only ever non-null for an English WRONG attempt — see
+      // HybridPronunciationScorer's parallel attempt-audio capture and
+      // PronunciationResult.audioPath's doc comment.
+      'audio_path':     result.audioPath,
     });
 
     // Phonological substitution analysis — only meaningful for a genuine
@@ -388,6 +401,12 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       }
       debugPrint('[PEPA] saved ${_allSubstitutions.length} substitution-bearing '
           'word attempts for sessionId=$sessionId');
+
+      // Storage-cleanup policy for English attempt audio — keeps only the
+      // last 5 sessions' worth of WRONG-attempt WAVs, deleting older ones.
+      // Runs once per session (here, not per-attempt), after this
+      // session's own audio_path rows are already saved above.
+      await SessionLogger.cleanupOldAttemptAudio(profileName: AppState.name);
     } catch (e, st) {
       // Previously silent — a failure here meant PEPA data for this session
       // never reached SQLite with no trace, making it look like the parent

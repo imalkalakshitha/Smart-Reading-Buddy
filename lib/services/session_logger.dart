@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
@@ -14,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 7,
+      version: 8,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -111,6 +112,15 @@ class SessionLogger {
               )
             ''');
           }
+          if (oldVersion < 8) {
+            // English attempt audio persistence (parallel WAV capture
+            // alongside on-device STT — see hybrid_pronunciation_scorer
+            // .dart). Additive only — every existing word_attempts row
+            // just gets a NULL here. Nullable, no default: most rows
+            // will never have a path (Sinhala/DTW attempts, and every
+            // non-WRONG English attempt, never get one at all).
+            await db.execute('ALTER TABLE word_attempts ADD COLUMN audio_path TEXT');
+          }
         }
       },
     );
@@ -177,6 +187,7 @@ class SessionLogger {
         result TEXT NOT NULL,
         attempt_number INTEGER NOT NULL,
         dtw_score REAL NOT NULL,
+        audio_path TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(session_id)
       )
     ''');
@@ -271,9 +282,99 @@ class SessionLogger {
         'result': a['result'],
         'attempt_number': a['attempt_number'],
         'dtw_score': a['dtw_score'],
+        'audio_path': a['audio_path'],
       });
     }
     await batch.commit(noResult: true);
+  }
+
+  /// Storage-cleanup policy for English attempt audio (word_attempts
+  /// .audio_path — see hybrid_pronunciation_scorer.dart): keeps WRONG-
+  /// attempt WAVs for only the [keepSessions] most recent sessions that
+  /// have any saved audio; older sessions' files are deleted from disk
+  /// and their audio_path columns nulled out. Call after a session's
+  /// word_attempts have been saved — best-effort, any failure here (a
+  /// missing file, a locked path) is swallowed rather than surfaced,
+  /// since a stale/missing audio file is not worth failing the session
+  /// save over.
+  ///
+  /// Scoped to [profileName] the same way every other per-child query in
+  /// this file is — via a phoneme_attempts join, since neither `sessions`
+  /// nor `word_attempts` has a profile_name column of its own (see
+  /// getSessionCount's doc comment for the same pattern).
+  static Future<void> cleanupOldAttemptAudio({
+    required String profileName,
+    int keepSessions = 5,
+  }) async {
+    final db = await _database;
+    try {
+      // Sessions for this profile that actually have saved attempt audio,
+      // newest first.
+      final sessionsWithAudio = await db.rawQuery('''
+        SELECT DISTINCT s.session_id
+        FROM sessions s
+        JOIN word_attempts wa ON wa.session_id = s.session_id
+        WHERE wa.audio_path IS NOT NULL
+          AND s.session_id IN (SELECT DISTINCT session_id FROM phoneme_attempts WHERE profile_name = ?)
+        ORDER BY s.date DESC
+      ''', [profileName]);
+
+      if (sessionsWithAudio.length <= keepSessions) return;
+
+      final staleSessionIds = sessionsWithAudio
+          .skip(keepSessions)
+          .map((r) => r['session_id'] as int)
+          .toList();
+      if (staleSessionIds.isEmpty) return;
+
+      final placeholders = List.filled(staleSessionIds.length, '?').join(',');
+      final staleRows = await db.rawQuery(
+        'SELECT audio_path FROM word_attempts WHERE session_id IN ($placeholders) AND audio_path IS NOT NULL',
+        staleSessionIds,
+      );
+
+      for (final row in staleRows) {
+        final path = row['audio_path'] as String?;
+        if (path == null) continue;
+        try {
+          final f = File(path);
+          if (await f.exists()) await f.delete();
+        } catch (_) {
+          // Best-effort — move on regardless.
+        }
+      }
+
+      await db.rawUpdate(
+        'UPDATE word_attempts SET audio_path = NULL WHERE session_id IN ($placeholders)',
+        staleSessionIds,
+      );
+    } catch (e) {
+      // ignore: avoid_print
+      print('[Pronunciation] attempt-audio cleanup failed (non-fatal): $e');
+    }
+  }
+
+  /// WRONG-verdict attempts for [profileName] that still have a saved
+  /// audio_path (English only — see hybrid_pronunciation_scorer.dart's
+  /// sequential WRONG-only capture; Sinhala/DTW attempts never get one),
+  /// most recent first. Data source for the Parent Dashboard's "Sound
+  /// Wave Comparison" feature. Scoped via phoneme_attempts the same way
+  /// every other per-child query in this file is (see getSessionCount).
+  static Future<List<Map<String, dynamic>>> getWrongAttemptsWithAudio({
+    required String profileName,
+    int limit = 20,
+  }) async {
+    final db = await _database;
+    return db.rawQuery('''
+      SELECT wa.id, wa.session_id, wa.word, wa.phonemes, wa.audio_path,
+             s.date, s.grade, s.language
+      FROM word_attempts wa
+      JOIN sessions s ON s.session_id = wa.session_id
+      WHERE wa.result = 'WRONG' AND wa.audio_path IS NOT NULL
+        AND wa.session_id IN (SELECT DISTINCT session_id FROM phoneme_attempts WHERE profile_name = ?)
+      ORDER BY wa.id DESC
+      LIMIT ?
+    ''', [profileName, limit]);
   }
 
   // Returns phonemes that appear in WRONG attempts most often.

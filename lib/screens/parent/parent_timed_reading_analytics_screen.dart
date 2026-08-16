@@ -329,16 +329,31 @@ class _SessionExpansionCardState extends State<_SessionExpansionCard> {
   }
 }
 
-/// "Actual vs Expected" pace trend — one line, X = session date, Y = avg
-/// ratio of elapsed_ms/expected_ms_snapshot for that session's sentences.
-/// 1.0 (the dashed reference line) is exactly on the expected pace;
-/// points above it read as slower than expected. Framed as "getting
-/// closer to target pace" rather than "behind"/"slow" — same supportive-
-/// tone rule as the rest of this module (see SentenceReportCard).
-class _PaceTrendCard extends StatelessWidget {
-  final List<_PaceRatioPoint> trend;
+/// Combined trend card — a "Pace"/"WPM" toggle button switches between
+/// the two chart views in one card rather than stacking two full chart
+/// cards on the screen:
+/// - Pace: "Actual vs Expected" — X = session date, Y = avg ratio of
+///   elapsed_ms/expected_ms_snapshot for that session's sentences. 1.0
+///   (dashed reference line) is exactly on the expected pace; points
+///   above it read as slower than expected. Framed as "getting closer
+///   to target pace" rather than "behind"/"slow" — same supportive-tone
+///   rule as the rest of this module (see SentenceReportCard).
+/// - WPM: the module's own headline metric, straight from
+///   timed_reading_sessions.wpm, one combined line (see the grouping
+///   note in _loadSessions — not split per language+level, typical
+///   session counts here are too small for that to stay readable).
+class _TrendCard extends StatefulWidget {
+  final List<_PaceRatioPoint> paceTrend;
+  final List<_WpmPoint> wpmTrend;
 
-  const _PaceTrendCard({required this.trend});
+  const _TrendCard({required this.paceTrend, required this.wpmTrend});
+
+  @override
+  State<_TrendCard> createState() => _TrendCardState();
+}
+
+class _TrendCardState extends State<_TrendCard> {
+  bool _showWpm = false;
 
   @override
   Widget build(BuildContext context) {
@@ -355,42 +370,68 @@ class _PaceTrendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            isSinhala ? 'ඉලක්කගත වේගයට ළං වීම' : 'Getting Closer to Target Pace',
-            style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  _showWpm
+                      ? (isSinhala ? 'තත්පරයට වචන ප්‍රවණතාව' : 'Words Per Minute Trend')
+                      : (isSinhala ? 'ඉලක්කගත වේගයට ළං වීම' : 'Getting Closer to Target Pace'),
+                  style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                ),
+              ),
+              _ToggleButtons(
+                showWpm: _showWpm,
+                isSinhala: isSinhala,
+                onChanged: (v) => setState(() => _showWpm = v),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(
-            isSinhala
-                ? 'සෑම සැසියකම සාමාන්‍ය කියවීමේ වේගය, අපේක්ෂිත වේගයට සාපේක්ෂව'
-                : 'Average reading pace per session, relative to the expected pace',
+            _showWpm
+                ? (isSinhala ? 'සෑම සැසියකම කියවීමේ වේගය (WPM)' : 'Reading speed (WPM) per session')
+                : (isSinhala
+                    ? 'සෑම සැසියකම සාමාන්‍ය කියවීමේ වේගය, අපේක්ෂිත වේගයට සාපේක්ෂව'
+                    : 'Average reading pace per session, relative to the expected pace'),
             style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 16),
-          if (trend.length < 3)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              child: Center(
-                child: Text(
-                  isSinhala
-                      ? 'ප්‍රගතිය බැලීමට තවත් සැසි කිහිපයක් සම්පූර්ණ කරන්න'
-                      : 'Complete a few more sessions to see progress',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textHint),
-                ),
-              ),
-            )
-          else
-            SizedBox(
-              height: 160,
-              child: _buildChart(isSinhala),
-            ),
+          if (_showWpm) _buildWpmSection(isSinhala) else _buildPaceSection(isSinhala),
         ],
       ),
     );
   }
 
-  Widget _buildChart(bool isSinhala) {
+  Widget _buildPaceSection(bool isSinhala) {
+    final trend = widget.paceTrend;
+    if (trend.length < 3) return _emptyState(isSinhala);
+    return SizedBox(height: 160, child: _buildPaceChart(trend, isSinhala));
+  }
+
+  Widget _buildWpmSection(bool isSinhala) {
+    final trend = widget.wpmTrend;
+    if (trend.length < 3) return _emptyState(isSinhala);
+    return SizedBox(height: 160, child: _buildWpmChart(trend));
+  }
+
+  Widget _emptyState(bool isSinhala) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 20),
+      child: Center(
+        child: Text(
+          isSinhala
+              ? 'ප්‍රගතිය බැලීමට තවත් සැසි කිහිපයක් සම්පූර්ණ කරන්න'
+              : 'Complete a few more sessions to see progress',
+          textAlign: TextAlign.center,
+          style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textHint),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaceChart(List<_PaceRatioPoint> trend, bool isSinhala) {
     final spots = [
       for (var i = 0; i < trend.length; i++) FlSpot(i.toDouble(), trend[i].ratio),
     ];
@@ -467,6 +508,118 @@ class _PaceTrendCard extends StatelessWidget {
             belowBarData: BarAreaData(show: true, color: AppColors.timedReading.withValues(alpha: 0.08)),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildWpmChart(List<_WpmPoint> trend) {
+    final spots = [
+      for (var i = 0; i < trend.length; i++) FlSpot(i.toDouble(), trend[i].wpm),
+    ];
+    final values = trend.map((p) => p.wpm).toList();
+    final dataMin = values.reduce((a, b) => a < b ? a : b);
+    final dataMax = values.reduce((a, b) => a > b ? a : b);
+    final pad = ((dataMax - dataMin) * 0.2).clamp(3.0, double.infinity);
+    final minY = (dataMin - pad).clamp(0.0, double.infinity);
+    final maxY = dataMax + pad;
+
+    return LineChart(
+      LineChartData(
+        minY: minY,
+        maxY: maxY,
+        gridData: const FlGridData(show: false),
+        borderData: FlBorderData(show: false),
+        titlesData: FlTitlesData(
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 34,
+              getTitlesWidget: (value, meta) => Text(
+                value.round().toString(),
+                style: GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint),
+              ),
+            ),
+          ),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              reservedSize: 24,
+              getTitlesWidget: (value, meta) {
+                final i = value.round();
+                if (i < 0 || i >= trend.length) return const SizedBox.shrink();
+                final d = trend[i].date;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '${d.month}/${d.day}',
+                    style: GoogleFonts.nunito(fontSize: 10, color: AppColors.textHint),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          LineChartBarData(
+            spots: spots,
+            isCurved: true,
+            color: AppColors.timedReading,
+            barWidth: 3,
+            dotData: const FlDotData(show: true),
+            belowBarData: BarAreaData(show: true, color: AppColors.timedReading.withValues(alpha: 0.08)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Small segmented toggle — "Pace" / "WPM" — switching _TrendCard's chart.
+class _ToggleButtons extends StatelessWidget {
+  final bool showWpm;
+  final bool isSinhala;
+  final ValueChanged<bool> onChanged;
+
+  const _ToggleButtons({required this.showWpm, required this.isSinhala, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: AppColors.pageBg,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _segment(isSinhala ? 'වේගය' : 'Pace', selected: !showWpm, onTap: () => onChanged(false)),
+          _segment('WPM', selected: showWpm, onTap: () => onChanged(true)),
+        ],
+      ),
+    );
+  }
+
+  Widget _segment(String label, {required bool selected, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.timedReading : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.nunito(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w800,
+            color: selected ? Colors.white : AppColors.textSecondary,
+          ),
+        ),
       ),
     );
   }

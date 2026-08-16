@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:speech_to_text/speech_recognition_result.dart';
 import '../models/pronunciation_result.dart';
@@ -29,6 +32,28 @@ import 'simple_pronunciation_scorer.dart';
 ///
 /// When English STT is completely unavailable the energy-envelope scorer
 /// (SimplePronunciationScorer) is used as a last resort.
+///
+/// English attempt audio: on-device STT never produces a WAV file (it's
+/// in-memory recognition, not file-based), so there's nothing to save
+/// from the actual scored utterance. A first attempt at solving this ran
+/// a second, independent `record`-package capture CONCURRENTLY with
+/// _stt.listen()/.stop() — confirmed on a real device to starve STT of
+/// mic input (NO_SPEECH/error_speech_timeout on clearly-spoken words),
+/// a platform-level mic-arbitration conflict (SpeechRecognizer runs in a
+/// separate OS process; a second AudioRecord session in ours isn't
+/// reliably supported alongside it). Reverted.
+///
+/// Current approach: SEQUENTIAL, not parallel. STT runs completely alone,
+/// exactly as before this feature existed — no capture during
+/// listen()/stop() at all. Only once the verdict comes back WRONG does a
+/// brief (~1.5s) `record`-package capture start, by which point _stt.stop()
+/// has already fully released the mic, so there's no concurrent-session
+/// conflict. Trade-off, stated plainly: this cannot literally replay the
+/// audio STT already scored (that's gone — never saved anywhere); it's a
+/// fresh short recording taken immediately after the result is shown.
+/// Kept on disk only for WRONG verdicts and capped to the last 5
+/// sessions — see session_logger.dart's cleanupOldAttemptAudio. Never
+/// feeds into or blocks STT/scoring in any way.
 class HybridPronunciationScorer {
   HybridPronunciationScorer._();
 
@@ -45,6 +70,54 @@ class HybridPronunciationScorer {
 
   /// Normalised amplitude 0.0–1.0.
   static Stream<double> get amplitudeStream => _ampCtrl.stream;
+
+  // ── English-only: brief WRONG-attempt WAV capture, AFTER STT stops ─────
+  static final _attemptRecorder = AudioRecorder();
+
+  // How long to record after a WRONG verdict. Fixed/short rather than
+  // VAD-driven — this already only fires on a minority of attempts, and
+  // keeping it simple avoids a second silence-detection state machine
+  // for a supplementary, non-scoring recording.
+  static const Duration _wrongAttemptRecordingDuration = Duration(milliseconds: 1500);
+
+  // Per-process counter, purely to keep filenames unique even if two
+  // attempts somehow land on the same millisecond — the real DB
+  // session_id doesn't exist yet at record time (SessionLogger.saveSession
+  // only runs once, at the END of a session, after every word has been
+  // attempted), so it can't be embedded in the filename directly. The
+  // link back to a real session_id happens later, in the DB row itself
+  // (word_attempts.audio_path, written once the session is saved).
+  static int _attemptCounter = 0;
+
+  /// Records a brief supplementary WAV — only ever called after a WRONG
+  /// verdict, and only after _stt.stop() has already fully completed (the
+  /// mic is free by then, no concurrent-session conflict with STT).
+  /// Best-effort: any failure is swallowed and returns null rather than
+  /// throwing, since a missing waveform is not worth disrupting the
+  /// child's session over.
+  static Future<String?> _recordWrongAttemptAudio() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final attemptsDir = Directory('${dir.path}/pronunciation_attempts');
+      await attemptsDir.create(recursive: true);
+      final n = ++_attemptCounter;
+      final path = '${attemptsDir.path}/wrong_${DateTime.now().millisecondsSinceEpoch}_$n.wav';
+      await _attemptRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+      await Future.delayed(_wrongAttemptRecordingDuration);
+      return await _attemptRecorder.stop();
+    } catch (e) {
+      debugPrint('⚠️  Brief WRONG-attempt audio capture failed (scoring unaffected): $e');
+      try { await _attemptRecorder.stop(); } catch (_) {}
+      return null;
+    }
+  }
 
   // ── English phonetic variants ─────────────────────────────────────────────
   //
@@ -155,6 +228,10 @@ class HybridPronunciationScorer {
 
     await _ensureInit();
     if (_sttAvailable) {
+      // No attempt-audio capture here — STT runs completely alone, same
+      // as before this feature existed. See the class doc comment: any
+      // WRONG-attempt recording happens sequentially, in stopAndScore,
+      // only after _stt.stop() has fully released the mic.
       await _stt.listen(
         onResult: _onResult,
         onSoundLevelChange: (level) {
@@ -286,8 +363,18 @@ class HybridPronunciationScorer {
 
     // ignore: avoid_print
     print('Result: WRONG\n════════════════');
+    // Sequential, WRONG-only capture — see _recordWrongAttemptAudio's doc
+    // comment. _stt.stop() (above) has already fully completed, so the
+    // mic is free; this cannot conflict with STT the way the earlier
+    // concurrent approach did.
+    final keptAudioPath = await _recordWrongAttemptAudio();
+    // ignore: avoid_print
+    print(keptAudioPath != null
+        ? '🎙️  Attempt audio kept for parent review: $keptAudioPath'
+        : '🎙️  Attempt audio not available (capture failed)');
     return PronunciationResult(
-        verdict: 'WRONG', stars: 0, xpEarned: 0, rawTranscript: recognized);
+        verdict: 'WRONG', stars: 0, xpEarned: 0, rawTranscript: recognized,
+        audioPath: keptAudioPath);
   }
 
   // ── Matching helpers ──────────────────────────────────────────────────────

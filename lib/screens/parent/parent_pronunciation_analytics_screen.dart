@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/app_colors.dart';
@@ -6,6 +7,7 @@ import '../../models/local_storage.dart';
 import '../../services/cross_language_analyzer.dart';
 import '../../services/practice_suggestion_service.dart';
 import '../../services/session_logger.dart';
+import '../../utils/wav_waveform.dart';
 
 const _avatarMap = {
   'owl': '🦉', 'tiger': '🐯', 'frog': '🐸',
@@ -49,6 +51,7 @@ class _ParentPronunciationAnalyticsScreenState
   List<Map<String, dynamic>> _substitutionPatterns = [];
   List<PracticeSuggestion> _practiceSuggestions = [];
   List<Map<String, dynamic>> _assignedPracticeHistory = [];
+  List<Map<String, dynamic>> _wrongAttemptsWithAudio = [];
   double? _trendDelta; // positive = improving, negative = declining, null = not enough data
 
   @override
@@ -76,6 +79,8 @@ class _ParentPronunciationAnalyticsScreenState
         await PracticeSuggestionService.getSuggestions(profileName: profileName);
     final assignedPracticeHistory =
         await SessionLogger.getAssignedPracticeHistory(profileName: profileName);
+    final wrongAttemptsWithAudio =
+        await SessionLogger.getWrongAttemptsWithAudio(profileName: profileName);
 
     // ── Part 1 debug output: raw PEPA data shape, empty vs populated ──────
     debugPrint('[ParentPronunciationAnalytics] profileName="$profileName"');
@@ -104,6 +109,7 @@ class _ParentPronunciationAnalyticsScreenState
       _trendDelta = trendDelta;
       _substitutionPatterns = substitutionPatterns;
       _assignedPracticeHistory = assignedPracticeHistory;
+      _wrongAttemptsWithAudio = wrongAttemptsWithAudio;
       _loading = false;
     });
   }
@@ -169,27 +175,33 @@ class _ParentPronunciationAnalyticsScreenState
                       const SizedBox(height: 20),
                       _CrossLanguagePatternCard(patterns: _crossPatterns),
                     ],
+                    if (_wrongAttemptsWithAudio.isNotEmpty || _substitutionPatterns.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          if (_wrongAttemptsWithAudio.isNotEmpty)
+                            Expanded(
+                              child: _CompactFeatureButton(
+                                emoji: '🎵',
+                                label: 'Sound Waves',
+                                onTap: () => _showSoundWaveList(context),
+                              ),
+                            ),
+                          if (_wrongAttemptsWithAudio.isNotEmpty && _substitutionPatterns.isNotEmpty)
+                            const SizedBox(width: 12),
+                          if (_substitutionPatterns.isNotEmpty)
+                            Expanded(
+                              child: _CompactFeatureButton(
+                                emoji: '🔊',
+                                label: 'Sound Patterns',
+                                onTap: () => _showSoundPatternsSheet(context),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     _TroubleSoundsCard(stats: _phonemeStats, onAssign: _assignPractice),
-                    if (_substitutionPatterns.isNotEmpty) ...[
-                      const SizedBox(height: 20),
-                      _SoundPatternsCard(patterns: _substitutionPatterns, onAssign: _assignPractice),
-                    ],
-                    const SizedBox(height: 12),
-                    Center(
-                      child: TextButton.icon(
-                        onPressed: () => _showAllSoundPatterns(context),
-                        icon: const Icon(Icons.list_alt_rounded, size: 18),
-                        label: const Text('View all sound patterns'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.pronunciation,
-                          textStyle: GoogleFonts.nunito(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
                     if (_practiceSuggestions.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       _PracticeSuggestionsCard(suggestions: _practiceSuggestions),
@@ -247,6 +259,96 @@ class _ParentPronunciationAnalyticsScreenState
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       builder: (_) => _AllSoundPatternsSheet(patterns: all),
+    );
+  }
+
+  /// Opens the "Sound Wave Comparison" view for one WRONG attempt —
+  /// reference pronunciation vs the child's own saved recording.
+  void _showWaveformComparison(BuildContext context, Map<String, dynamic> attempt) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _SoundWaveComparisonSheet(attempt: attempt),
+    );
+  }
+
+  /// Entry point for the "🎵 Sound Waves" compact button — the list of
+  /// recent WRONG attempts with saved audio, tapping one opens
+  /// _showWaveformComparison exactly as before. Same data/content as the
+  /// old always-visible _SoundWaveReviewCard, just behind a tap now.
+  void _showSoundWaveList(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => _SoundWaveListSheet(
+        attempts: _wrongAttemptsWithAudio,
+        onTapAttempt: (a) => _showWaveformComparison(sheetContext, a),
+      ),
+    );
+  }
+
+  /// Entry point for the "🔊 Sound Patterns" compact button — same
+  /// top-5 confirmed-pattern content as the old always-visible
+  /// _SoundPatternsCard, just behind a tap now. "View all sound
+  /// patterns" (unfiltered, including still-developing patterns) now
+  /// lives inside this sheet rather than floating on the main dashboard.
+  void _showSoundPatternsSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.divider,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _SoundPatternsCard(
+                    patterns: _substitutionPatterns,
+                    onAssign: _assignPractice,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                TextButton.icon(
+                  onPressed: () => _showAllSoundPatterns(sheetContext),
+                  icon: const Icon(Icons.list_alt_rounded, size: 18),
+                  label: const Text('View all sound patterns'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.pronunciation,
+                    textStyle: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -424,6 +526,56 @@ class _StatsRow extends StatelessWidget {
           Expanded(child: cards[i].animate(delay: (i * 80).ms).fadeIn().slideY(begin: 0.15)),
         ],
       ],
+    );
+  }
+}
+
+/// Compact, collapsed-by-default entry point for a feature that used to
+/// be an always-visible full card (Sound Wave Comparison / Sound
+/// Patterns) — tap opens the same underlying sheet/content as before.
+/// Only ever built when its data is non-empty (see the guarded Row in
+/// build() above) — there's no disabled/greyed-out state, the caller
+/// simply omits the button entirely when there's nothing to show.
+class _CompactFeatureButton extends StatelessWidget {
+  final String emoji;
+  final String label;
+  final VoidCallback onTap;
+
+  const _CompactFeatureButton({required this.emoji, required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppColors.divider, width: 0.5),
+            boxShadow: const [
+              BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3)),
+            ],
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1402,6 +1554,381 @@ class _AssignedPracticeHistoryTile extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Sound Wave Comparison — entry point ─────────────────────────────────
+
+/// Modal-sheet content behind the "🎵 Sound Waves" compact button — lists
+/// recent WRONG-verdict attempts that still have a saved audio_path
+/// (English only, per hybrid_pronunciation_scorer.dart's keep-only-WRONG
+/// policy); tapping one opens _SoundWaveComparisonSheet for that specific
+/// attempt. Same content as the old always-visible _SoundWaveReviewCard
+/// card, just shown on tap now instead of permanently on the dashboard —
+/// the compact button itself is only rendered when this list is
+/// non-empty (see the button row in build() above), so there's no
+/// broken/empty entry point to begin with.
+class _SoundWaveListSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> attempts;
+  final void Function(Map<String, dynamic> attempt) onTapAttempt;
+
+  const _SoundWaveListSheet({required this.attempts, required this.onTapAttempt});
+
+  String _formatDate(String? iso) {
+    final d = iso == null ? null : DateTime.tryParse(iso);
+    if (d == null) return '';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[d.month - 1]} ${d.day}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final shown = attempts.take(5).toList();
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.pronunciation.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.graphic_eq_rounded, color: AppColors.pronunciation, size: 20),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Sound Wave Comparison',
+                    style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Hear the difference — compare the reference pronunciation against your child\'s own recording.',
+              style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 14),
+            ...shown.indexed.map((entry) {
+            final i = entry.$1;
+            final a = entry.$2;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: AppColors.primarySurface,
+                borderRadius: BorderRadius.circular(12),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: () => onTapAttempt(a),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                a['word'] as String,
+                                style: GoogleFonts.nunito(fontSize: 14.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                _formatDate(a['date'] as String?),
+                                style: GoogleFonts.nunito(fontSize: 11.5, color: AppColors.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppColors.danger.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            'WRONG',
+                            style: GoogleFonts.nunito(fontSize: 10.5, fontWeight: FontWeight.w800, color: AppColors.danger),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(Icons.chevron_right_rounded, color: AppColors.textHint, size: 20),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ).animate(delay: (i * 60).ms).fadeIn().slideX(begin: 0.1);
+          }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Sound Wave Comparison — detail sheet ────────────────────────────────
+
+/// Reference pronunciation vs the child's saved WRONG-attempt recording,
+/// each rendered as a simple amplitude-over-time bar row (not a
+/// spectrogram — deliberately simple for a non-technical parent). Purely
+/// a display aid: reads real bytes from the bundled reference .wav asset
+/// and the real saved WAV at word_attempts.audio_path — no placeholder
+/// or synthetic data anywhere in this widget.
+class _SoundWaveComparisonSheet extends StatefulWidget {
+  final Map<String, dynamic> attempt;
+
+  const _SoundWaveComparisonSheet({required this.attempt});
+
+  @override
+  State<_SoundWaveComparisonSheet> createState() => _SoundWaveComparisonSheetState();
+}
+
+class _SoundWaveComparisonSheetState extends State<_SoundWaveComparisonSheet> {
+  bool _loading = true;
+  WavWaveformResult? _reference;
+  WavWaveformResult? _child;
+  String? _referenceError;
+  String? _childError;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final word = widget.attempt['word'] as String;
+    final grade = (widget.attempt['grade'] as String?) == 'grade4' ? 'grade4' : 'grade3';
+    final childPath = widget.attempt['audio_path'] as String?;
+
+    WavWaveformResult? reference;
+    String? refError;
+    try {
+      // English only — this feature only ever saves audio for English
+      // attempts (see hybrid_pronunciation_scorer.dart), same asset path
+      // pattern pronunciation_session_screen.dart's own _playReference
+      // uses for the "Listen to reference" button.
+      final data = await rootBundle.load('assets/audio/words/en/$grade/$word.wav');
+      reference = WavWaveform.extractBarsFromBytes(data.buffer.asUint8List());
+      if (reference == null) refError = 'Reference audio could not be read.';
+    } catch (_) {
+      refError = 'No reference recording found for this word.';
+    }
+
+    WavWaveformResult? child;
+    String? childError;
+    if (childPath == null) {
+      childError = 'No recording was saved for this attempt.';
+    } else {
+      child = await WavWaveform.extractBarsFromFile(childPath);
+      if (child == null) {
+        childError = 'This recording is no longer available (it may have been cleaned up).';
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _reference = reference;
+      _referenceError = refError;
+      _child = child;
+      _childError = childError;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final word = widget.attempt['word'] as String;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    word,
+                    style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    'WRONG',
+                    style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.danger),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: CircularProgressIndicator(color: AppColors.pronunciation)),
+              )
+            else ...[
+              _WaveformSection(
+                label: 'Reference pronunciation',
+                color: AppColors.success,
+                result: _reference,
+                error: _referenceError,
+              ),
+              const SizedBox(height: 20),
+              _WaveformSection(
+                label: 'Your child\'s attempt',
+                color: AppColors.accentOrange,
+                result: _child,
+                error: _childError,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _WaveformSection extends StatelessWidget {
+  final String label;
+  final Color color;
+  final WavWaveformResult? result;
+  final String? error;
+
+  const _WaveformSection({required this.label, required this.color, this.result, this.error});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            ),
+            if (result?.isQuiet == true) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: AppColors.textHint.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  'quiet recording',
+                  style: GoogleFonts.nunito(fontSize: 10, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                ),
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (result != null)
+          _WaveformBars(bars: result!.bars, color: color)
+        else
+          Container(
+            width: double.infinity,
+            height: 70,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: AppColors.pageBg,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              error ?? 'Not available',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Simple amplitude-over-time bar row — deliberately not a spectrogram,
+/// just relative peak amplitude per time bucket. [bars] values are
+/// 0.0-1.0; a small floor is applied so a near-silent bucket still shows
+/// a thin sliver rather than fully disappearing (makes silence-vs-word
+/// boundaries visually obvious instead of just empty space).
+class _WaveformBars extends StatelessWidget {
+  final List<double> bars;
+  final Color color;
+
+  const _WaveformBars({required this.bars, required this.color});
+
+  static const double _height = 70;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _height,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          for (final b in bars)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 0.75),
+                child: Container(
+                  height: (b.clamp(0.04, 1.0)) * _height,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
             ),
         ],
       ),

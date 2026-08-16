@@ -2,12 +2,16 @@ import 'dart:async';
 import 'dart:io';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../config/api_keys.dart';
+import '../services/gemini_sinhala_scorer.dart';
 import '../services/hybrid_pronunciation_scorer.dart';
 
 /// Thin wrapper around the Pronunciation module's proven STT/Gemini
 /// calling patterns — reused directly, not reinvented. Every call here
 /// goes through HybridPronunciationScorer's existing public static API,
-/// the same one pronunciation_session_screen.dart itself calls.
+/// the same one pronunciation_session_screen.dart itself calls, plus a
+/// read-only observation of GeminiSinhalaScorer.isRetrying (already a
+/// public ValueNotifier there, used to time 429-retry backoffs for
+/// logging — no changes to that file either).
 /// Two small additive-only parameters (apiKey/geminiApiKey, both
 /// optional and default-preserving) were later added to
 /// hybrid_pronunciation_scorer.dart and gemini_sinhala_scorer.dart so
@@ -25,11 +29,17 @@ class TimedReadingSttResult {
   final String? transcript;
   final bool noSpeech; // engine returned empty/no-match — don't count as a valid attempt
   final bool noInternet; // Sinhala/Gemini only
+  // Total time spent waiting out a Gemini 429 backoff during this call
+  // (0 if no retry happened, always 0 for English). Logged separately so
+  // retry frequency stays visible for debugging without being folded
+  // into elapsedMs — see ReadingScreen._stopAndCapture.
+  final int geminiRetryWaitMs;
 
   const TimedReadingSttResult({
     required this.transcript,
     required this.noSpeech,
     required this.noInternet,
+    this.geminiRetryWaitMs = 0,
   });
 }
 
@@ -44,28 +54,63 @@ class TimedReadingSpeechBridge {
   /// stopAndScore needs for its own (here-unused) verdict computation —
   /// there's no single target "word" for a sentence, so the sentence
   /// text itself fills that slot.
+  ///
+  /// [onRecordingStopped], if given, fires synchronously at the very top
+  /// of this method — before the network call to Gemini (or the
+  /// English STT flush) begins — marking the instant recording actually
+  /// stopped. The caller is invoked with no intervening await, so this
+  /// timestamp reflects the moment its own VAD/silence-grace decided to
+  /// stop, NOT however long the subsequent transcription (including any
+  /// Gemini 429 retry backoff) ends up taking. ReadingScreen uses this
+  /// (Sinhala only) instead of a post-await timestamp so a retry delay
+  /// can no longer inflate elapsedMs.
   static Future<TimedReadingSttResult> stopAndGetTranscript({
     required String sentenceText,
     required String lang,
     required int gradeNum,
+    void Function()? onRecordingStopped,
   }) async {
-    final result = await HybridPronunciationScorer.stopAndScore(
-      word: sentenceText,
-      lang: lang,
-      gradeNum: gradeNum,
-      sinhalaScript: lang == 'si' ? sentenceText : null,
-      geminiApiKey: ApiKeys.timedReadingGeminiApiKey,
-    );
-    final transcript = result.rawTranscript;
-    final noSpeech = result.verdict == 'NO_SPEECH' ||
-        transcript == null ||
-        transcript.trim().isEmpty;
-    final noInternet = result.verdict == 'NO_INTERNET';
-    return TimedReadingSttResult(
-      transcript: transcript,
-      noSpeech: noSpeech,
-      noInternet: noInternet,
-    );
+    onRecordingStopped?.call();
+
+    // Sinhala-only: GeminiSinhalaScorer.isRetrying is a public
+    // ValueNotifier<bool> already exposed for UI ("please wait,
+    // retrying..."). Observed here read-only to measure actual 429-retry
+    // backoff duration for logging — gemini_sinhala_scorer.dart itself
+    // is untouched, this only listens to a field it already exposes.
+    var retryWaitMs = 0;
+    DateTime? retryStartedAt;
+    void onRetryChanged() {
+      if (GeminiSinhalaScorer.isRetrying.value) {
+        retryStartedAt = DateTime.now();
+      } else if (retryStartedAt != null) {
+        retryWaitMs += DateTime.now().difference(retryStartedAt!).inMilliseconds;
+        retryStartedAt = null;
+      }
+    }
+    if (lang == 'si') GeminiSinhalaScorer.isRetrying.addListener(onRetryChanged);
+
+    try {
+      final result = await HybridPronunciationScorer.stopAndScore(
+        word: sentenceText,
+        lang: lang,
+        gradeNum: gradeNum,
+        sinhalaScript: lang == 'si' ? sentenceText : null,
+        geminiApiKey: ApiKeys.timedReadingGeminiApiKey,
+      );
+      final transcript = result.rawTranscript;
+      final noSpeech = result.verdict == 'NO_SPEECH' ||
+          transcript == null ||
+          transcript.trim().isEmpty;
+      final noInternet = result.verdict == 'NO_INTERNET';
+      return TimedReadingSttResult(
+        transcript: transcript,
+        noSpeech: noSpeech,
+        noInternet: noInternet,
+        geminiRetryWaitMs: retryWaitMs,
+      );
+    } finally {
+      if (lang == 'si') GeminiSinhalaScorer.isRetrying.removeListener(onRetryChanged);
+    }
   }
 
   // ── English-only STT availability pre-check ──────────────────────────

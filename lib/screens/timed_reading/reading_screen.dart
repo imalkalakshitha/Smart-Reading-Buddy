@@ -275,10 +275,15 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
 
     final unit = _sentences[_unitIndex];
     final finishedIndex = _unitIndex;
+    // Captured by the speech bridge's onRecordingStopped callback, fired
+    // synchronously before the Gemini/STT call begins — the actual
+    // "recording stopped" instant, not whatever comes after it.
+    int? recordingStoppedMs;
     final result = await TimedReadingSpeechBridge.stopAndGetTranscript(
       sentenceText: unit.text,
       lang: _langCode,
       gradeNum: _gradeNum,
+      onRecordingStopped: () => recordingStoppedMs = _stopwatch.elapsedMilliseconds,
     );
     if (!mounted) return;
 
@@ -297,10 +302,20 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     }
 
     final autoDetected = diffWords(expected: unit.text, transcribed: result.transcript!);
-    // Final capture AFTER the await, so engine/network latency correctly
-    // extends the recorded elapsed rather than being measured from a
-    // stale pre-await timestamp.
-    final finalCaptureMs = _stopwatch.elapsedMilliseconds;
+    // finalCaptureMs source differs by language:
+    // - Sinhala: uses recordingStoppedMs (captured the instant recording
+    //   stopped, before the Gemini call). Previously this was captured
+    //   AFTER the full await, which meant a 429 rate-limit retry backoff
+    //   (up to ~20s, see GeminiSinhalaScorer's _defaultRetryDelaySeconds)
+    //   got counted as reading time — fixed here.
+    // - English: UNCHANGED, still captured after the await. English never
+    //   had the Gemini-retry problem; the post-await delay there is only
+    //   speech_to_text's own short engine-flush wait (~500ms), which was
+    //   never the issue this fix targets, so its elapsed calculation is
+    //   left exactly as it was.
+    final finalCaptureMs = _isSinhala
+        ? (recordingStoppedMs ?? _stopwatch.elapsedMilliseconds)
+        : _stopwatch.elapsedMilliseconds;
     // Elapsed from actual speech onset, not from the tap — falls back to
     // _recordStartMs only in the edge case where content was transcribed
     // despite the VAD never reporting a crossing (e.g. threshold missed
@@ -319,7 +334,7 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       autoDetectedMisreadIndexes: autoDetected,
     ));
     // ignore: avoid_print
-    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  finalCaptureMs=$finalCaptureMs  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  transcript="${result.transcript}"');
+    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  recordingStoppedMs=$recordingStoppedMs  finalCaptureMs=$finalCaptureMs  geminiRetryWaitMs=${result.geminiRetryWaitMs}  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  transcript="${result.transcript}"');
 
     setState(() => _scoring = false);
     _advanceUnit(finishedIndex);
