@@ -31,10 +31,75 @@ class _TimedReadingHomeScreenState extends State<TimedReadingHomeScreen> {
   bool _loading = true;
   final Map<String, double> _progressByLevel = {};
 
+  // "Practice These Again" — pending assigned-practice rows for this
+  // profile+grade+language. Non-empty → banner shows above the level
+  // grid. Re-queried on return to this screen (didChangeDependencies via
+  // initState only here since this screen is always freshly pushed, not
+  // kept alive underneath the session flow).
+  List<Map<String, dynamic>> _pendingPractice = [];
+
   @override
   void initState() {
     super.initState();
     _loadProgress();
+    _loadPendingPractice();
+  }
+
+  Future<void> _loadPendingPractice() async {
+    final isSinhala = AppState.language == 'sinhala';
+    final grade = AppState.grade == 'grade4' ? 'grade4' : 'grade3';
+    final language = isSinhala ? 'sinhala' : 'english';
+    try {
+      final rows = await TimedReadingDao.getPendingPractice(
+        profileName: AppState.name,
+        grade: grade,
+        language: language,
+      );
+      if (!mounted) return;
+      setState(() => _pendingPractice = rows);
+    } catch (e) {
+      // ignore: avoid_print
+      print('[TR] pending-practice query failed — banner stays hidden: $e');
+    }
+  }
+
+  void _startAssignedPractice() {
+    final isSinhala = AppState.language == 'sinhala';
+    final grade = AppState.grade == 'grade4' ? 'grade4' : 'grade3';
+    final language = isSinhala ? 'sinhala' : 'english';
+
+    final ids = <int>[];
+    final sentences = <SentenceSet>[];
+    for (final row in _pendingPractice) {
+      final sentenceId = row['sentence_id'] as String;
+      final resolved = findTimedReadingSentenceById(sentenceId);
+      if (resolved == null) continue; // catalog entry removed since assignment — skip
+      ids.add(row['id'] as int);
+      sentences.add(resolved);
+    }
+    if (sentences.isEmpty) return;
+
+    Navigator.pushNamed(
+      context,
+      AppRouter.timedReadingSession,
+      arguments: ReadingScreenArgs(
+        grade: grade,
+        language: language,
+        // Synthetic marker, not a real level1-5 — keeps assigned-practice
+        // sessions out of the level-progress counts above (counts map
+        // only tracks _levels) and out of Calibration Insights' real-
+        // level aggregates (see TimedReadingDao's level != 'assigned_
+        // practice' filter). Also what MiscueMarkingScreen checks to know
+        // to call markPracticeCompleted on save.
+        level: 'assigned_practice',
+        sentences: sentences,
+      ),
+    ).then((_) {
+      // Re-query on return — a completed session clears its rows, and
+      // the banner should reflect that (or any newly-assigned ones)
+      // immediately rather than needing a fresh screen push.
+      _loadPendingPractice();
+    });
   }
 
   Future<void> _loadProgress() async {
@@ -101,6 +166,14 @@ class _TimedReadingHomeScreenState extends State<TimedReadingHomeScreen> {
                 ],
               ),
               const SizedBox(height: 20),
+              if (_pendingPractice.isNotEmpty) ...[
+                _AssignedPracticeBanner(
+                  isSinhala: isSinhala,
+                  count: _pendingPractice.length,
+                  onTap: _startAssignedPractice,
+                ).animate().fadeIn().slideY(begin: 0.15),
+                const SizedBox(height: 14),
+              ],
               Expanded(
                 child: _loading
                     ? const Center(child: CircularProgressIndicator(color: AppColors.timedReading))
@@ -140,6 +213,67 @@ class _TimedReadingHomeScreenState extends State<TimedReadingHomeScreen> {
                   },
                 ),
               ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "Practice These Again" banner — shown above the level grid only when
+/// TimedReadingDao.getPendingPractice returns non-empty results. Neutral
+/// invitation tone, no deficit language ("mistakes", "wrong", "again"
+/// framed as failure) — deliberately worded like a gift from a parent,
+/// not a correction.
+class _AssignedPracticeBanner extends StatelessWidget {
+  final bool isSinhala;
+  final int count;
+  final VoidCallback onTap;
+
+  const _AssignedPracticeBanner({
+    required this.isSinhala,
+    required this.count,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.timedReading.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.timedReading.withValues(alpha: 0.35), width: 1),
+          ),
+          child: Row(
+            children: [
+              const Text('🎁', style: TextStyle(fontSize: 32)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isSinhala
+                          ? 'ඔබේ දෙමව්පියන් පුහුණු වීමට වාක්‍ය කිහිපයක් තෝරාගෙන ඇත!'
+                          : 'Your parent picked $count sentence${count == 1 ? '' : 's'} to practice!',
+                      style: GoogleFonts.nunito(fontSize: 14.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      isSinhala ? 'උත්සාහ කිරීමට තට්ටු කරන්න' : 'Tap to give them a try',
+                      style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded, color: AppColors.timedReading),
             ],
           ),
         ),

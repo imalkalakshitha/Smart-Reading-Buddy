@@ -11,10 +11,34 @@ import '../../router/app_router.dart';
 import '../../services/timed_reading_speech_bridge.dart';
 import '../../utils/word_diff.dart';
 
-/// Core Timed Reading session screen. Button gesture/visuals deliberately
-/// mirror pronunciation_session_screen.dart's mic button exactly (tap to
-/// start, engine auto-stops via the same VAD pattern — NOT a hold
-/// gesture, see the pre-coding investigation) for BOTH languages.
+/// Core Timed Reading session screen.
+///
+/// Tap-to-start button gesture/visuals mirror pronunciation_session_screen
+/// .dart's mic button (NOT a hold gesture). Stop mechanism DIFFERS by
+/// language: English still auto-stops via TimedReadingVadMonitor (its own
+/// speech_to_text engine reliably decides when recognition is final).
+/// Sinhala uses an explicit manual "Done reading" button tap instead —
+/// three amplitude-threshold VAD tuning attempts for Sinhala each failed
+/// against a different real noise profile on the same test device, so
+/// amplitude-based auto-stop was abandoned entirely for that language
+/// rather than continuing to tune it (see TimedReadingVadMonitor's class
+/// doc and _onDoneTap). _maxRecordingDuration (25s) remains a hard safety
+/// ceiling for BOTH languages, in case a child never taps Done / the
+/// engine never fires its own stop.
+///
+/// SINHALA ACCURACY: Gemini transcription/scoring was removed from
+/// Sinhala Timed Reading entirely (network dependency, rate limits, and
+/// an RMS-trim step were all fighting reliable offline use) — see
+/// TimedReadingAudioRecorder. Each unit is recorded to its own temp WAV
+/// via that recorder (fully independent of the pronunciation module),
+/// stored on that unit's UnitTiming.audioFilePath, and never touches
+/// timing at all (elapsed is purely Stopwatch-based). MiscueMarkingScreen
+/// offers a 🔊 Listen button per sentence so a parent/teacher can play
+/// the recording back and mark misreads manually; the temp files are
+/// deleted once that screen finishes or is left (see its
+/// _cleanupAudioFiles), plus a defensive startup sweep in main.dart
+/// catches anything orphaned by a crash. English is entirely unaffected
+/// by any of this — untouched STT/HybridPronunciationScorer path.
 ///
 /// TIMING: every recorded value comes from Stopwatch.elapsedMilliseconds,
 /// captured synchronously before any await. The periodic Timer only
@@ -65,8 +89,13 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
   // well past 7s. Still bounded so a stuck mic can't hang indefinitely.
   static const _maxRecordingDuration = Duration(seconds: 25);
   final _vad = TimedReadingVadMonitor();
-  String? _retryNotice; // transient bilingual "no speech, try again" banner
+  String? _retryNotice; // transient "no speech, try again" banner — English only now
   int? _speechStartMs; // stopwatch reading at actual speech onset (VAD-detected), not at tap
+
+  // Sinhala only: unique per-attempt token so this session's temp audio
+  // filenames (see TimedReadingAudioRecorder.pathFor) never collide with
+  // another session's, even if both happen to record the same unit index.
+  final String _sessionAudioToken = DateTime.now().millisecondsSinceEpoch.toString();
 
   @override
   void initState() {
@@ -94,9 +123,10 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
   }
 
   Future<void> _checkSpeechFlow() async {
-    final available = _isSinhala
-        ? await TimedReadingSpeechBridge.hasInternetForSinhala()
-        : await TimedReadingSpeechBridge.checkEnglishSttAvailability();
+    // Sinhala: recording is now fully offline (own recorder, no
+    // Gemini/network dependency at all — see TimedReadingAudioRecorder),
+    // so there's nothing to pre-check; always available.
+    final available = _isSinhala ? true : await TimedReadingSpeechBridge.checkEnglishSttAvailability();
     if (!mounted) return;
     setState(() {
       _speechFlowChecked = true;
@@ -165,11 +195,20 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       // backgrounded — fire-and-forget stop, result ignored.
       _autoStopTimer?.cancel();
       _vad.stop();
-      TimedReadingSpeechBridge.stopAndGetTranscript(
-        sentenceText: _sentences[_unitIndex].text,
-        lang: _langCode,
-        gradeNum: _gradeNum,
-      );
+      if (_isSinhala) {
+        // Stop + delete the orphaned temp file — this attempt is
+        // discarded, never added to _session.unitTimings, so nothing
+        // would otherwise clean it up.
+        TimedReadingAudioRecorder.stop().then((path) {
+          if (path != null) TimedReadingAudioRecorder.deleteFiles([path]);
+        });
+      } else {
+        TimedReadingSpeechBridge.stopAndGetTranscript(
+          sentenceText: _sentences[_unitIndex].text,
+          lang: _langCode,
+          gradeNum: _gradeNum,
+        );
+      }
       _recording = false;
       _scoring = false;
     }
@@ -248,36 +287,95 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       _recording = true;
     });
     // _recordStartMs is captured synchronously, before the startRecording
-    // await, purely as a fallback reference (see _stopAndCapture) — it is
-    // NOT the elapsed source anymore. _speechStartMs (set by the VAD's
-    // onSpeechStart callback, below) is the real source: it fires at the
-    // first amplitude crossing, i.e. actual speech onset, excluding both
-    // mic-init latency and the child's pre-speech thinking time.
+    // await. For English it's purely a fallback reference (see
+    // _stopAndCapture) — _speechStartMs (set by the VAD's onSpeechStart
+    // callback, below) is the real source there, firing at the first
+    // amplitude crossing. For Sinhala, VAD is no longer used at all (see
+    // class doc / _onDoneTap), so _speechStartMs is never set and elapsed
+    // always falls back to this tap-to-start timestamp by design.
     _recordStartMs = _stopwatch.elapsedMilliseconds;
     _speechStartMs = null;
-    await TimedReadingSpeechBridge.startRecording(lang: _langCode);
+    if (_isSinhala) {
+      // Own independent recorder — never touches
+      // GeminiSinhalaScorer/HybridPronunciationScorer at all.
+      final path = await TimedReadingAudioRecorder.pathFor(
+        sessionToken: _sessionAudioToken,
+        unitIndex: _unitIndex,
+      );
+      await TimedReadingAudioRecorder.start(path: path);
+    } else {
+      await TimedReadingSpeechBridge.startRecording(lang: _langCode);
+    }
     if (!mounted) return;
+    // Safety ceiling only, for BOTH languages — the routine stop signal
+    // is _onDoneTap (Sinhala) or the VAD (English) below.
     _autoStopTimer = Timer(_maxRecordingDuration, _stopAndCapture);
+    if (_isSinhala) {
+      // Sinhala: no VAD/amplitude auto-stop at all — child taps "Done
+      // reading" (_onDoneTap) to stop. See TimedReadingVadMonitor's class
+      // doc for why three amplitude-threshold tuning attempts were
+      // abandoned in favor of this manual control.
+      return;
+    }
     _vad.start(
       () => _speechStartMs ??= _stopwatch.elapsedMilliseconds,
       _stopAndCapture,
     );
   }
 
+  /// Sinhala-only manual stop — the child taps "Done reading" / "ඉවරයි"
+  /// once finished. Calls the same _stopAndCapture used by English's VAD
+  /// auto-stop and the safety-ceiling timer, so downstream scoring/
+  /// timing/advance logic is identical; only the trigger differs.
+  void _onDoneTap() {
+    if (!_recording || _scoring) return;
+    _stopAndCapture();
+  }
+
   Future<void> _stopAndCapture() async {
     if (!_recording) return;
     _autoStopTimer?.cancel();
     _vad.stop();
+
+    final unit = _sentences[_unitIndex];
+    final finishedIndex = _unitIndex;
+
+    if (_isSinhala) {
+      // Sinhala: elapsed is purely Stopwatch-based (the "WAV duration" is
+      // this Done-tap instant minus _recordStartMs) — no Gemini, no
+      // network, nothing sits between recording-stop and this
+      // calculation, so it's correct even fully offline. The recorder's
+      // own .stop() (finalizing the temp WAV) happens right here too —
+      // it's fast (local file I/O only, no network), so it's fine to
+      // await before advancing.
+      final path = await TimedReadingAudioRecorder.stop();
+      if (!mounted) return;
+      final finalCaptureMs = _stopwatch.elapsedMilliseconds;
+      final elapsed = finalCaptureMs - _recordStartMs;
+      _checkpointMs = finalCaptureMs;
+      final stalled = elapsed > (unit.upperThresholdSec * 1000).round();
+      final tooFast = elapsed < (unit.lowerThresholdSec * 1000).round();
+
+      _session.unitTimings.add(UnitTiming(
+        unitIndex: finishedIndex,
+        elapsedMs: elapsed,
+        stalled: stalled,
+        tooFast: tooFast,
+        audioFilePath: path,
+      ));
+      // ignore: avoid_print
+      print('[TR] unit $finishedIndex done (sinhala)  elapsedMs=$elapsed  recordStartMs=$_recordStartMs  finalCaptureMs=$finalCaptureMs  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  tooFast=$tooFast  audioFilePath=$path');
+
+      setState(() => _recording = false);
+      _advanceUnit(finishedIndex);
+      return;
+    }
+
+    // ── English: UNCHANGED from before this redesign ──────────────────
     setState(() {
       _recording = false;
       _scoring = true;
     });
-
-    final unit = _sentences[_unitIndex];
-    final finishedIndex = _unitIndex;
-    // Captured by the speech bridge's onRecordingStopped callback, fired
-    // synchronously before the Gemini/STT call begins — the actual
-    // "recording stopped" instant, not whatever comes after it.
     int? recordingStoppedMs;
     final result = await TimedReadingSpeechBridge.stopAndGetTranscript(
       sentenceText: unit.text,
@@ -294,47 +392,28 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       print('[TR] unit $finishedIndex no valid speech (noSpeech=${result.noSpeech} noInternet=${result.noInternet}) — retry');
       setState(() {
         _scoring = false;
-        _retryNotice = result.noInternet
-            ? (_isSinhala ? 'අන්තර්ජාල සම්බන්ධතාවයක් නැත — නැවත උත්සාහ කරන්න' : 'No internet — try again')
-            : (_isSinhala ? 'හඬක් ඇසුනේ නැත — නැවත උත්සාහ කරන්න' : 'No speech heard — try again');
+        _retryNotice = result.noInternet ? 'No internet — try again' : 'No speech heard — try again';
       });
       return;
     }
 
     final autoDetected = diffWords(expected: unit.text, transcribed: result.transcript!);
-    // finalCaptureMs source differs by language:
-    // - Sinhala: uses recordingStoppedMs (captured the instant recording
-    //   stopped, before the Gemini call). Previously this was captured
-    //   AFTER the full await, which meant a 429 rate-limit retry backoff
-    //   (up to ~20s, see GeminiSinhalaScorer's _defaultRetryDelaySeconds)
-    //   got counted as reading time — fixed here.
-    // - English: UNCHANGED, still captured after the await. English never
-    //   had the Gemini-retry problem; the post-await delay there is only
-    //   speech_to_text's own short engine-flush wait (~500ms), which was
-    //   never the issue this fix targets, so its elapsed calculation is
-    //   left exactly as it was.
-    final finalCaptureMs = _isSinhala
-        ? (recordingStoppedMs ?? _stopwatch.elapsedMilliseconds)
-        : _stopwatch.elapsedMilliseconds;
-    // Elapsed from actual speech onset, not from the tap — falls back to
-    // _recordStartMs only in the edge case where content was transcribed
-    // despite the VAD never reporting a crossing (e.g. threshold missed
-    // a very quiet/fast utterance); that fallback re-introduces the old
-    // bug's prep-time inflation for that one edge case, but never
-    // produces a negative/nonsensical elapsed.
+    final finalCaptureMs = _stopwatch.elapsedMilliseconds;
     final elapsed = finalCaptureMs - (_speechStartMs ?? _recordStartMs);
     _checkpointMs = finalCaptureMs;
 
     final stalled = elapsed > (unit.upperThresholdSec * 1000).round();
+    final tooFast = elapsed < (unit.lowerThresholdSec * 1000).round();
 
     _session.unitTimings.add(UnitTiming(
       unitIndex: finishedIndex,
       elapsedMs: elapsed,
       stalled: stalled,
+      tooFast: tooFast,
       autoDetectedMisreadIndexes: autoDetected,
     ));
     // ignore: avoid_print
-    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  recordingStoppedMs=$recordingStoppedMs  finalCaptureMs=$finalCaptureMs  geminiRetryWaitMs=${result.geminiRetryWaitMs}  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  transcript="${result.transcript}"');
+    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  recordingStoppedMs=$recordingStoppedMs  finalCaptureMs=$finalCaptureMs  geminiRetryWaitMs=${result.geminiRetryWaitMs}  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  tooFast=$tooFast  transcript="${result.transcript}"');
 
     setState(() => _scoring = false);
     _advanceUnit(finishedIndex);
@@ -347,14 +426,16 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     final elapsed = nowMs - _checkpointMs;
     _checkpointMs = nowMs;
     final stalled = elapsed > (unit.upperThresholdSec * 1000).round();
+    final tooFast = elapsed < (unit.lowerThresholdSec * 1000).round();
 
     _session.unitTimings.add(UnitTiming(
       unitIndex: finishedIndex,
       elapsedMs: elapsed,
       stalled: stalled,
+      tooFast: tooFast,
     ));
     // ignore: avoid_print
-    print('[TR] unit $finishedIndex done (manual)  elapsedMs=$elapsed  stalled=$stalled');
+    print('[TR] unit $finishedIndex done (manual)  elapsedMs=$elapsed  stalled=$stalled  tooFast=$tooFast');
     _advanceUnit(finishedIndex);
   }
 
@@ -388,6 +469,7 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
         session: _session,
         attemptNumber: widget.args.attemptNumber,
         previousWpm: widget.args.previousWpm,
+        isAssignedPractice: widget.args.level == 'assigned_practice',
       ),
     );
   }
@@ -532,38 +614,60 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
               // Visually identical to Pronunciation's mic button
               // (120x120, green outline idle / filled+glow active,
               // mic_rounded/stop_rounded) per explicit instruction to
-              // reuse it directly, for BOTH languages.
-              GestureDetector(
-                onTap: (_paused || _scoring) ? null : _onButtonTap,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    color: _recording ? AppColors.timedReading : AppColors.primarySurface,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.timedReading, width: _recording ? 0 : 3),
-                    boxShadow: _recording
-                        ? [BoxShadow(color: AppColors.timedReading.withValues(alpha: 0.4), blurRadius: 24, spreadRadius: 4)]
-                        : [],
+              // reuse it directly. EXCEPTION: Sinhala while _recording
+              // swaps this circle for an explicit "Done reading" button
+              // (same visual language as Miscue Marking's DONE button)
+              // instead — no VAD/amplitude auto-stop, see
+              // TimedReadingVadMonitor's class doc.
+              if (isSinhala && _recording && !_scoring)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _onDoneTap,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.timedReading,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 18),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    ),
+                    child: Text(
+                      'ඉවරයි',
+                      style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800),
+                    ),
                   ),
-                  child: _scoring
-                      ? const Center(child: CircularProgressIndicator(color: AppColors.timedReading))
-                      : Icon(
-                          _speechFlowAvailable
-                              ? (_recording ? Icons.stop_rounded : Icons.mic_rounded)
-                              : Icons.arrow_forward_rounded,
-                          size: 42,
-                          color: _recording ? Colors.white : AppColors.timedReading,
-                        ),
+                )
+              else
+                GestureDetector(
+                  onTap: (_paused || _scoring) ? null : _onButtonTap,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: _recording ? AppColors.timedReading : AppColors.primarySurface,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.timedReading, width: _recording ? 0 : 3),
+                      boxShadow: _recording
+                          ? [BoxShadow(color: AppColors.timedReading.withValues(alpha: 0.4), blurRadius: 24, spreadRadius: 4)]
+                          : [],
+                    ),
+                    child: _scoring
+                        ? const Center(child: CircularProgressIndicator(color: AppColors.timedReading))
+                        : Icon(
+                            _speechFlowAvailable
+                                ? (_recording ? Icons.stop_rounded : Icons.mic_rounded)
+                                : Icons.arrow_forward_rounded,
+                            size: 42,
+                            color: _recording ? Colors.white : AppColors.timedReading,
+                          ),
+                  ),
                 ),
-              ),
               const SizedBox(height: 8),
               Text(
                 _scoring
                     ? (isSinhala ? 'පරීක්ෂා කරමින්...' : 'Checking...')
                     : (_recording
-                        ? (isSinhala ? 'අහගෙන ඉන්නවා...' : 'Listening...')
+                        ? (isSinhala ? 'කියවා අවසන් වූ විට ඉවරයි ස්පර්ශ කරන්න' : 'Listening...')
                         : (_speechFlowAvailable
                             ? (isSinhala ? 'ස්පර්ශ කර හඬ නඟා කියවන්න' : 'Tap and read aloud')
                             : (isSinhala ? 'ඊළඟට යාමට ස්පර්ශ කරන්න' : 'Tap to continue'))),

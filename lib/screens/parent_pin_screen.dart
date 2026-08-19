@@ -11,7 +11,16 @@ import 'parent/parent_dashboard_screen.dart';
 const _parentPin = '1234';
 
 class ParentPinScreen extends StatefulWidget {
-  const ParentPinScreen({super.key});
+  // Optional override for what to navigate to on correct PIN entry —
+  // default null preserves the original behavior exactly (resolve a
+  // child profile, then push ParentDashboardScreen for it). When
+  // provided, profile resolution is skipped entirely and this builder's
+  // widget is pushed instead — used by Settings' "Calibration Insights"
+  // entry, which isn't tied to any single child. Same PIN flow reused,
+  // not a new one, per explicit instruction.
+  final WidgetBuilder? destinationBuilder;
+
+  const ParentPinScreen({super.key, this.destinationBuilder});
 
   @override
   State<ParentPinScreen> createState() => _ParentPinScreenState();
@@ -66,12 +75,19 @@ class _ParentPinScreenState extends State<ParentPinScreen>
 
   Future<void> _validate(String entered) async {
     if (entered == _parentPin) {
+      if (!mounted) return;
+      if (widget.destinationBuilder != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: widget.destinationBuilder!),
+        );
+        return;
+      }
       // AppState.name is only set once a child's own PIN has been
       // validated (see child_pin_screen.dart) — this parent flow can be
       // reached without that ever happening (profile-select screen's
       // "Parent" button skips straight here), so it can't be trusted as
       // the child to show analytics for. Resolve explicitly instead.
-      if (!mounted) return;
       final profileName = await _resolveProfileName();
       if (profileName == null || !mounted) return;
       Navigator.pushReplacement(

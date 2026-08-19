@@ -24,6 +24,7 @@ dependencies:
   speech_to_text: ^7.0.0
   flutter_blue_plus: ^1.32.0
   http: ^1.2.2
+  uuid: ^4.4.0
 
 dev_dependencies:
   flutter_test:
@@ -45,3 +46,7 @@ flutter:
     - assets/audio/words/si/grade3/
     - assets/audio/words/si/grade4/
     - assets/audio/sentences/
+    - assets/eduplay/rf_model.json
+    - assets/eduplay/eduplay_tasks.json
+    - dataset/
+    - indeepa wav/

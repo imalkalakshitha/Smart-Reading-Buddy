@@ -53,6 +53,19 @@ class _ParentPronunciationAnalyticsScreenState
   List<Map<String, dynamic>> _assignedPracticeHistory = [];
   List<Map<String, dynamic>> _wrongAttemptsWithAudio = [];
   double? _trendDelta; // positive = improving, negative = declining, null = not enough data
+  // Single-slot "active assignment" flag (LocalStorage.AssignedPractice —
+  // see local_storage.dart, at most one per profile). Non-null suppresses
+  // the PEPA-Driven Auto-Recommendation banner below, so the parent isn't
+  // nagged about assigning practice when one is already pending.
+  AssignedPractice? _activeAssignedPractice;
+
+  /// Phonemes meeting PEPA's already-established "enough data to matter"
+  /// bar — the exact same `total >= 2` filter _TroubleSoundsCard applies
+  /// before ranking (see its `ranked` local), just not capped to its
+  /// top-5 display limit. Deliberately not a new threshold: reusing this
+  /// one is what requirement 1 asked for.
+  List<Map<String, dynamic>> get _needsAttentionPhonemes =>
+      _phonemeStats.where((r) => (r['total'] as int) >= 2).toList();
 
   @override
   void initState() {
@@ -81,6 +94,7 @@ class _ParentPronunciationAnalyticsScreenState
         await SessionLogger.getAssignedPracticeHistory(profileName: profileName);
     final wrongAttemptsWithAudio =
         await SessionLogger.getWrongAttemptsWithAudio(profileName: profileName);
+    final activeAssignedPractice = await LocalStorage.getAssignedPractice(profileName);
 
     // ── Part 1 debug output: raw PEPA data shape, empty vs populated ──────
     debugPrint('[ParentPronunciationAnalytics] profileName="$profileName"');
@@ -110,6 +124,7 @@ class _ParentPronunciationAnalyticsScreenState
       _substitutionPatterns = substitutionPatterns;
       _assignedPracticeHistory = assignedPracticeHistory;
       _wrongAttemptsWithAudio = wrongAttemptsWithAudio;
+      _activeAssignedPractice = activeAssignedPractice;
       _loading = false;
     });
   }
@@ -159,6 +174,13 @@ class _ParentPronunciationAnalyticsScreenState
                       profileNameFallback: widget.profileName,
                       sessionCount: _sessionCount,
                     ),
+                    if (_needsAttentionPhonemes.isNotEmpty && _activeAssignedPractice == null) ...[
+                      const SizedBox(height: 16),
+                      _AutoRecommendationBanner(
+                        count: _needsAttentionPhonemes.length,
+                        onTap: () => _showAutoRecommendationSheet(context),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     _StatsRow(
                       accuracy: _wordAccuracy.totalWords == 0
@@ -224,6 +246,11 @@ class _ParentPronunciationAnalyticsScreenState
       phoneme: phoneme,
       language: language,
     );
+    // Refresh the single-slot flag so the auto-recommendation banner
+    // (and any future load) reflects the new pending assignment right
+    // away, without needing a full screen reload.
+    final activeAssignedPractice = await LocalStorage.getAssignedPractice(widget.profileName);
+    if (mounted) setState(() => _activeAssignedPractice = activeAssignedPractice);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -235,6 +262,27 @@ class _ParentPronunciationAnalyticsScreenState
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Opens the sheet listing every phoneme currently meeting PEPA's
+  /// "needs attention" bar (see _needsAttentionPhonemes) — the banner's
+  /// tap target. Each row reuses _PhonemeBar (same widget Top Struggling
+  /// Phonemes uses) and _assignPractice (same write path), so there's no
+  /// separate assign-practice logic to keep in sync.
+  void _showAutoRecommendationSheet(BuildContext context) {
+    final qualifying = _needsAttentionPhonemes;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _AutoRecommendationSheet(
+        phonemes: qualifying,
+        onAssign: _assignPractice,
       ),
     );
   }
@@ -769,6 +817,122 @@ class _CrossLanguagePatternCard extends StatelessWidget {
 }
 
 // ── Top struggling phonemes ─────────────────────────────────────────────
+
+// ── PEPA-Driven Auto-Recommendation ──────────────────────────────────────
+// Proactive entry point sitting on top of the existing Top Struggling
+// Phonemes/Sound Patterns/Assign Practice machinery — doesn't change any
+// of it, just surfaces "you might want to look at this" before the parent
+// has to notice the pattern themselves in the cards below.
+
+class _AutoRecommendationBanner extends StatelessWidget {
+  final int count;
+  final VoidCallback onTap;
+
+  const _AutoRecommendationBanner({required this.count, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppColors.primary.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.30), width: 1),
+          ),
+          child: Row(
+            children: [
+              const Text('💡', style: TextStyle(fontSize: 30)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$count sound${count == 1 ? '' : 's'} could use extra practice',
+                      style: GoogleFonts.nunito(fontSize: 14.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Based on recent pronunciation attempts',
+                      style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.primary,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Review & Assign',
+                  style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w800, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AutoRecommendationSheet extends StatelessWidget {
+  final List<Map<String, dynamic>> phonemes;
+  final void Function(String phoneme, String language) onAssign;
+
+  const _AutoRecommendationSheet({required this.phonemes, required this.onAssign});
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Sounds that could use extra practice',
+              style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Pick one to assign — it\'ll be waiting next time they open Pronunciation.',
+              style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 18),
+            Flexible(
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: phonemes.length,
+                itemBuilder: (_, i) {
+                  final row = phonemes[i];
+                  final total = row['total'] as int;
+                  final incorrect = row['incorrect'] as int;
+                  final rate = total == 0 ? 0.0 : incorrect / total;
+                  return _PhonemeBar(
+                    rank: i + 1,
+                    phoneme: row['phoneme'] as String,
+                    language: row['language'] as String,
+                    errorRate: rate,
+                    onAssign: onAssign,
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _TroubleSoundsCard extends StatelessWidget {
   final List<Map<String, dynamic>> stats;

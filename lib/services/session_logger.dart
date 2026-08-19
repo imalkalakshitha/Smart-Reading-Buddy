@@ -15,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 8,
+      version: 11,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -121,6 +121,50 @@ class SessionLogger {
             // non-WRONG English attempt, never get one at all).
             await db.execute('ALTER TABLE word_attempts ADD COLUMN audio_path TEXT');
           }
+          if (oldVersion < 9) {
+            // Sinhala Timed Reading audio review — additive only.
+            // Nullable, no default: existing rows (and every English row)
+            // get NULL. Unlike word_attempts.audio_path above, this path
+            // survives past Miscue Marking's DONE/SKIP now — moved to
+            // app-docs storage (see TimedReadingAudioRecorder) and only
+            // deleted once a parent listens in Parent Dashboard, or by
+            // the 14-day safety-net sweep.
+            await db.execute(
+                'ALTER TABLE timed_reading_unit_timings ADD COLUMN audio_file_path TEXT');
+          }
+          if (oldVersion < 10) {
+            // "Too fast" plausibility flag — the lowerThresholdSec
+            // counterpart to the existing stalled/upperThresholdSec
+            // column. Additive only, default 0: every existing row (and
+            // every future non-flagged row) is simply "not too fast".
+            // Purely informational — never read back into any
+            // elapsed/WPM/WCPM calculation.
+            await db.execute(
+                'ALTER TABLE timed_reading_unit_timings ADD COLUMN too_fast INTEGER NOT NULL DEFAULT 0');
+          }
+          if (oldVersion < 11) {
+            // "Practice These Again" — Timed Reading's own assigned-
+            // practice queue (parallel to Pronunciation's is_assigned_
+            // practice/AssignedPractice, but a multi-item SQL queue
+            // instead of a single SharedPreferences slot, since a parent
+            // can flag several sentences from one session at once).
+            // Fully separate table, no FK into sessions/timed_reading_
+            // sessions — sentence_id is looked back up against the
+            // static content catalog at read time, not stored redundantly
+            // as a full snapshot beyond the text shown in the banner.
+            await db.execute('''
+              CREATE TABLE timed_reading_assigned_practice (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                grade TEXT NOT NULL,
+                language TEXT NOT NULL,
+                sentence_id TEXT NOT NULL,
+                sentence_text_snapshot TEXT NOT NULL,
+                assigned_at TEXT NOT NULL,
+                completed_at TEXT
+              )
+            ''');
+          }
         }
       },
     );
@@ -221,11 +265,26 @@ class SessionLogger {
         expected_ms_snapshot INTEGER NOT NULL,
         elapsed_ms INTEGER NOT NULL,
         stalled INTEGER NOT NULL DEFAULT 0,
+        too_fast INTEGER NOT NULL DEFAULT 0,
         no_speech_detected INTEGER NOT NULL DEFAULT 0,
         transcript TEXT,
         auto_misread_indexes TEXT,
         final_misread_indexes TEXT,
+        audio_file_path TEXT,
         FOREIGN KEY (session_id) REFERENCES timed_reading_sessions(id)
+      )
+    ''');
+    // Mirrors the oldVersion < 11 branch above exactly.
+    await db.execute('''
+      CREATE TABLE timed_reading_assigned_practice (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        grade TEXT NOT NULL,
+        language TEXT NOT NULL,
+        sentence_id TEXT NOT NULL,
+        sentence_text_snapshot TEXT NOT NULL,
+        assigned_at TEXT NOT NULL,
+        completed_at TEXT
       )
     ''');
   }

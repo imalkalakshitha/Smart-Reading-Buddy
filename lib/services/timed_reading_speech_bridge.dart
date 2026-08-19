@@ -1,23 +1,18 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import '../config/api_keys.dart';
 import '../services/gemini_sinhala_scorer.dart';
 import '../services/hybrid_pronunciation_scorer.dart';
 
-/// Thin wrapper around the Pronunciation module's proven STT/Gemini
-/// calling patterns — reused directly, not reinvented. Every call here
-/// goes through HybridPronunciationScorer's existing public static API,
-/// the same one pronunciation_session_screen.dart itself calls, plus a
-/// read-only observation of GeminiSinhalaScorer.isRetrying (already a
-/// public ValueNotifier there, used to time 429-retry backoffs for
-/// logging — no changes to that file either).
-/// Two small additive-only parameters (apiKey/geminiApiKey, both
-/// optional and default-preserving) were later added to
-/// hybrid_pronunciation_scorer.dart and gemini_sinhala_scorer.dart so
-/// this bridge could supply its own Gemini key — see
-/// ApiKeys.timedReadingGeminiApiKey below — without changing any
-/// existing Pronunciation call site's behavior.
+/// ENGLISH ONLY as of the Sinhala Gemini-removal redesign (see
+/// TimedReadingAudioRecorder below for Sinhala's own independent path).
+/// Thin wrapper around the Pronunciation module's proven STT calling
+/// pattern — reused directly, not reinvented. Every call here goes
+/// through HybridPronunciationScorer's existing public static API, the
+/// same one pronunciation_session_screen.dart itself calls.
 ///
 /// HybridPronunciationScorer.stopAndScore() is built for single-word
 /// matching (verdict/stars/xp against one expected word) — not meaningful
@@ -96,6 +91,12 @@ class TimedReadingSpeechBridge {
         gradeNum: gradeNum,
         sinhalaScript: lang == 'si' ? sentenceText : null,
         geminiApiKey: ApiKeys.timedReadingGeminiApiKey,
+        // Timed Reading has its own reliable start/stop boundary (manual
+        // "Done" button) and doesn't need AudioPreprocessor's RMS-trim —
+        // confirmed via live testing that trim was cutting full-sentence
+        // recordings down to just the first word. See
+        // GeminiSinhalaScorer.stopAndScore's doc for full detail.
+        skipPreprocessing: true,
       );
       final transcript = result.rawTranscript;
       final noSpeech = result.verdict == 'NO_SPEECH' ||
@@ -135,48 +136,186 @@ class TimedReadingSpeechBridge {
     }
   }
 
-  // ── Sinhala-only connectivity pre-check ──────────────────────────────
-  // GeminiSinhalaScorer already has an internal _hasInternet() using this
-  // exact technique (DNS lookup to generativelanguage.googleapis.com,
-  // 3s timeout) — but it's private, only runs AFTER the child finishes
-  // speaking (inside stopAndScore), and that file is off-limits to modify
-  // (pronunciation-module hard constraint). Timed Reading's spec needs a
-  // PRE-flight check, before a Sinhala session even starts recording, so
-  // this duplicates the same lightweight technique rather than editing
-  // gemini_sinhala_scorer.dart to expose it.
-  static Future<bool> hasInternetForSinhala() async {
-    try {
-      final result = await InternetAddress.lookup('generativelanguage.googleapis.com')
-          .timeout(const Duration(seconds: 3));
-      return result.isNotEmpty && result.first.rawAddress.isNotEmpty;
-    } catch (_) {
-      return false;
+}
+
+/// Sinhala Timed Reading's own independent audio recorder — deliberately
+/// separate from GeminiSinhalaScorer/HybridPronunciationScorer (both
+/// off-limits pronunciation-module files, and both now unused for
+/// Sinhala Timed Reading entirely). Gemini transcription/scoring is no
+/// longer part of the Sinhala Timed Reading flow at all: recording is
+/// kept as a temp WAV per unit purely so a parent/teacher can play it
+/// back in MiscueMarkingScreen and mark misreads manually — fully
+/// offline, no network dependency anywhere in this path.
+///
+/// Same `record` package, same RecordConfig shape as the pronunciation
+/// scorers use (confirmed via reading those files that this is the
+/// project's standard pattern) — but its own AudioRecorder instance, so
+/// it never shares state with, or has to coordinate with, any
+/// pronunciation-module recorder.
+class TimedReadingAudioRecorder {
+  TimedReadingAudioRecorder._();
+
+  static final _recorder = AudioRecorder();
+
+  static Future<void> start({required String path}) => _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+          autoGain: true,
+          echoCancel: true,
+          noiseSuppress: true,
+        ),
+        path: path,
+      );
+
+  /// Returns the recorded file's path, or null if recording never
+  /// started / produced no file.
+  static Future<String?> stop() => _recorder.stop();
+
+  // Every temp file lives under <tempDir>/tr_audio/, named by session
+  // token + unit index — keeps Timed Reading's audio fully separate from
+  // any pronunciation-module temp files (which use their own fixed
+  // filenames directly in the temp root) and makes the whole subfolder
+  // trivial to sweep on cleanup.
+  static Future<String> pathFor({
+    required String sessionToken,
+    required int unitIndex,
+  }) async {
+    final dir = await getTemporaryDirectory();
+    final audioDir = Directory('${dir.path}/tr_audio');
+    await audioDir.create(recursive: true);
+    return '${audioDir.path}/${sessionToken}_unit$unitIndex.wav';
+  }
+
+  /// Deletes the given files if they exist. Best-effort — a failure to
+  /// delete one file (e.g. already gone) doesn't stop the rest, and never
+  /// throws back to the caller.
+  static Future<void> deleteFiles(Iterable<String?> paths) async {
+    for (final p in paths) {
+      if (p == null) continue;
+      try {
+        final f = File(p);
+        if (await f.exists()) await f.delete();
+      } catch (_) {}
     }
+  }
+
+  /// Defensive startup sweep — deletes any tr_audio/ (temp, in-progress
+  /// recording) file older than [maxAge] (default 1 hour), catching
+  /// orphans left behind by a crash or force-close before a recording
+  /// ever reached _moveToReviewStorage. Safe to call on every app
+  /// launch: a session actively in progress is always far younger than
+  /// [maxAge], so it's never at risk of being swept mid-use.
+  static Future<void> cleanupStaleFiles({Duration maxAge = const Duration(hours: 1)}) async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final audioDir = Directory('${dir.path}/tr_audio');
+      if (!await audioDir.exists()) return;
+      final cutoff = DateTime.now().subtract(maxAge);
+      await for (final entity in audioDir.list()) {
+        if (entity is! File) continue;
+        try {
+          final stat = await entity.stat();
+          if (stat.modified.isBefore(cutoff)) await entity.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  // ── Longer-lived Parent Dashboard review storage ─────────────────────
+  // Separate from tr_audio/ (temp, session-scoped) above — files here
+  // deliberately outlive the Timed Reading session and Miscue Marking,
+  // surviving until a parent listens in Parent Dashboard (which deletes
+  // + nulls the DB row) or the 14-day safety-net sweep below. Uses
+  // getApplicationDocumentsDirectory (not temp) for the same reason
+  // hybrid_pronunciation_scorer.dart's WRONG-attempt audio does — OS temp
+  // cleanup can purge getTemporaryDirectory() contents at any time, which
+  // would be wrong for something meant to persist for potentially days.
+
+  /// Moves a just-recorded temp WAV (from [pathFor]) into permanent
+  /// review storage once the real SQLite session id is known — see
+  /// MiscueMarkingScreen._saveSession, the only caller. Returns the new
+  /// path, or null if the move failed (e.g. source file already gone) —
+  /// callers should treat that unit as having no audio rather than throw.
+  static Future<String?> moveToReviewStorage({
+    required String tempPath,
+    required int sessionId,
+    required int unitIndex,
+  }) async {
+    try {
+      final srcFile = File(tempPath);
+      if (!await srcFile.exists()) {
+        // ignore: avoid_print
+        print('[TR-DEBUG] moveToReviewStorage: source missing at move time: $tempPath');
+        return null;
+      }
+      final dir = await getApplicationDocumentsDirectory();
+      final reviewDir = Directory('${dir.path}/tr_audio_review');
+      await reviewDir.create(recursive: true);
+      final destPath = '${reviewDir.path}/${sessionId}_unit$unitIndex.wav';
+      try {
+        await srcFile.rename(destPath);
+      } catch (_) {
+        // rename() can fail across filesystem boundaries on some
+        // platforms — fall back to copy+delete.
+        await srcFile.copy(destPath);
+        await srcFile.delete();
+      }
+      return destPath;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[TR-DEBUG] moveToReviewStorage failed: $e');
+      return null;
+    }
+  }
+
+  /// Safety-net sweep for tr_audio_review/ — deletes anything older than
+  /// [maxAge] (default 14 days) regardless of what the DB's
+  /// audio_file_path column says, in case a delete-on-listen ever failed
+  /// to also clear that column, or a parent never opens Parent Dashboard
+  /// at all. Run at app startup alongside [cleanupStaleFiles]. Does NOT
+  /// touch the database — a file deleted here whose row still points at
+  /// it will simply fail to play next time (DeviceFileSource on a
+  /// missing file), not crash; acceptable for a 14-day-stale recording.
+  static Future<void> cleanupStaleReviewFiles({Duration maxAge = const Duration(days: 14)}) async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final reviewDir = Directory('${dir.path}/tr_audio_review');
+      if (!await reviewDir.exists()) return;
+      final cutoff = DateTime.now().subtract(maxAge);
+      await for (final entity in reviewDir.list()) {
+        if (entity is! File) continue;
+        try {
+          final stat = await entity.stat();
+          if (stat.modified.isBefore(cutoff)) await entity.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
   }
 }
 
-/// Voice-activity auto-stop — same amplitude thresholds and "arm after
-/// first speech, then stop after a silence grace period" logic as
-/// pronunciation_session_screen.dart's _onVadSample, but with its OWN,
-/// separately-tunable [silenceGrace] rather than reusing Pronunciation's
-/// verbatim. That reuse was the root cause of a real bug: Pronunciation's
-/// _vadSilenceGrace (900ms) is tuned for a single-word drill, where any
-/// pause at all means the child is done. Timed Reading records a full
-/// CONNECTED SENTENCE — a dyslexic child decoding word-by-word can easily
-/// pause >900ms between words, so the 900ms value was auto-stopping
-/// after just the first word (confirmed from a device log: "මම ගමට යමි"
-/// captured as just "මම"). Fixed by giving Timed Reading its own,
-/// meaningfully longer default here — this class is never imported by
-/// anything under screens/pronunciation/, so Pronunciation's own
-/// _vadSilenceGrace constant is completely untouched.
+/// Voice-activity auto-stop — English ONLY as of the Sinhala manual-Done
+/// redesign (see ReadingScreen._startRecording/_onDoneTap). Three
+/// amplitude-threshold tuning attempts for Sinhala (900ms silence-grace,
+/// 2500ms silence-grace, 2-consecutive-sample debounce) each failed
+/// against a different real noise profile on the same test device —
+/// confirmed via live logging that this device's ambient noise bursts
+/// overlap in both amplitude range and duration with genuine inter-word
+/// pauses, so no amplitude threshold reliably separates them. Rather than
+/// keep tuning, Sinhala now stops recording via an explicit "Done
+/// reading" button tap instead of this class. This class is kept
+/// unchanged for English, which has never shown the bug (speech_to_text's
+/// own engine decides when recognition is final; this monitor's
+/// onAutoStop is a secondary catch-all for English, not its primary stop
+/// signal).
 class TimedReadingVadMonitor {
   static const double speechThreshold = 0.12;
   static const double silenceThreshold = 0.06;
 
   // Pronunciation's single-word-drill value is 900ms — too short for a
   // full sentence's natural inter-word pauses. 2500ms is a deliberately
-  // more generous starting point for connected speech; tune after
-  // real-device testing with actual children.
+  // more generous starting point for connected speech.
   static const Duration defaultSilenceGrace = Duration(milliseconds: 2500);
 
   // English-only concern: HybridPronunciationScorer's amplitudeStream
@@ -189,10 +328,6 @@ class TimedReadingVadMonitor {
   // was exactly why English fell through to the 25s ceiling even though
   // speech_to_text had already delivered a correct final transcript
   // seconds earlier: nothing was watching for the stream going idle.
-  // Sinhala's `record`-package stream (GeminiSinhalaScorer.amplitudeStream)
-  // polls continuously every 100ms regardless of silence, so this idle
-  // watchdog is inert for Sinhala — it only ever fires once a real gap
-  // in samples exists, which for Sinhala doesn't happen.
   static const Duration _streamIdleTimeout = Duration(milliseconds: 900);
 
   final Duration silenceGrace;
@@ -208,23 +343,15 @@ class TimedReadingVadMonitor {
   /// Stopwatch reading at that moment so elapsed can be measured from
   /// actual speech onset rather than from the tap that started recording
   /// (which includes mic-init latency and the child's pre-speech
-  /// thinking time). This is the only speech-start signal available
-  /// without modifying the pronunciation module: Gemini's Sinhala path
-  /// has no partial-result stream at all (single POST-based
-  /// transcription, not streaming), and English's speech_to_text partial
-  /// results live inside HybridPronunciationScorer's private static
-  /// state with no public stream exposed — so unlike the earlier
-  /// English-only STT-service version of this feature, there is no
-  /// partial-result fallback path here for either language, only this
-  /// amplitude-crossing signal.
+  /// thinking time).
   ///
   /// [onAutoStop] fires either from the normal silence-grace path
   /// (amplitude observed dropping and staying below [silenceThreshold]
-  /// for [silenceGrace]) OR, for English, from the idle watchdog below —
-  /// whichever happens first. The watchdog does NOT shorten how long
-  /// speech_to_text itself waits before deciding a result is final; it
-  /// only reacts promptly once the stream shows that decision already
-  /// happened (no new samples for [_streamIdleTimeout]).
+  /// for [silenceGrace]) OR from the idle watchdog below — whichever
+  /// happens first. The watchdog does NOT shorten how long speech_to_text
+  /// itself waits before deciding a result is final; it only reacts
+  /// promptly once the stream shows that decision already happened (no
+  /// new samples for [_streamIdleTimeout]).
   void start(void Function() onSpeechStart, void Function() onAutoStop) {
     _hasSpokenOnce = false;
     _silenceStartedAt = null;

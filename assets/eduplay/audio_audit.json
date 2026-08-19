@@ -1,0 +1,1452 @@
+{
+ "summary": {
+  "referenced": 240,
+  "exact": 0,
+  "extension_differs": 0,
+  "missing": 240
+ },
+ "exact": [],
+ "extension_differs": [],
+ "missing": [
+  {
+   "audio_filename": "E_G4_B_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_B_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W10.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W13.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W07.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W14.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W08.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_014.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W15.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G4_A_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_004.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l1_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W01.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W05.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l1_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_B_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_A_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_012.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G3_B_W09.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_015.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_B_W11.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_008.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W06.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l1_009.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_010.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_005.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l1_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g3l2_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_001.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_003.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W02.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "Brother.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "E_G3_A_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_013.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g3l2_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_007.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "En_g4l2_006.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W12.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_002.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W04.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "si_g4l2_011.m4a",
+   "audio_asset_folder": "audio/sentences",
+   "source_path": null,
+   "match": "missing"
+  },
+  {
+   "audio_filename": "S_G4_A_W03.wav",
+   "audio_asset_folder": "audio/words",
+   "source_path": null,
+   "match": "missing"
+  }
+ ]
+}

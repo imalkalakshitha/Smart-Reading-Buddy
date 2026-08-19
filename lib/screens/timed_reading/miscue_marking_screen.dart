@@ -1,3 +1,4 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,13 +7,18 @@ import '../../data/timed_reading_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../router/app_router.dart';
+import '../../services/timed_reading_speech_bridge.dart';
 
 /// Optional post-attempt screen: tap any word that was misread.
 /// Skippable — if skipped, accuracyMarked stays false and ResultsScreen
-/// shows WPM only, no WCPM/accuracy. Auto-pre-filled from STT/Gemini
-/// diff when available; if the session fell back to manual (Sinhala
-/// offline, or English STT unavailable), this is the original fully
-/// blank manual state, no caption — matching pre-STT behavior exactly.
+/// shows WPM only, no WCPM/accuracy. English: auto-pre-filled from STT
+/// diff when available. Sinhala: fully manual — Gemini transcription was
+/// removed from Sinhala Timed Reading entirely (offline reliability); a
+/// 🔊 "Listen" button per sentence plays that unit's own recorded temp
+/// WAV instead, so a parent/teacher can listen and mark manually. If the
+/// session fell back to manual (English STT unavailable), this is the
+/// original fully blank manual state, no caption — matching pre-STT
+/// behavior exactly.
 class MiscueMarkingScreen extends StatefulWidget {
   final MiscueMarkingArgs args;
 
@@ -30,10 +36,50 @@ class _MiscueMarkingScreenState extends State<MiscueMarkingScreen> {
   // on any successful save.
   static int _consecutiveSaveFailures = 0;
 
+  // ── Sinhala-only playback of each unit's recorded temp WAV ───────────
+  late final AudioPlayer _audioPlayer;
+  int? _playingUnitIndex;
+
   @override
   void initState() {
     super.initState();
     _prefillAutoDetected();
+    _audioPlayer = AudioPlayer();
+    _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _playingUnitIndex = null);
+    });
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    // No temp-file cleanup here anymore: recordings now survive past
+    // this screen (moved to permanent Parent Dashboard review storage in
+    // _saveSession below) whether the child finishes or backs out mid-
+    // marking — deleted only once a parent listens, or by the 14-day
+    // safety-net sweep. See TimedReadingAudioRecorder's class docs.
+    super.dispose();
+  }
+
+  Future<void> _toggleAudio(int unitIndex, String path) async {
+    if (_playingUnitIndex == unitIndex) {
+      await _audioPlayer.stop();
+      if (mounted) setState(() => _playingUnitIndex = null);
+      return;
+    }
+    try {
+      setState(() => _playingUnitIndex = unitIndex);
+      await _audioPlayer.play(DeviceFileSource(path));
+    } catch (_) {
+      if (mounted) setState(() => _playingUnitIndex = null);
+    }
+  }
+
+  String? _audioPathForUnit(int unitIndex) {
+    for (final t in widget.args.session.unitTimings) {
+      if (t.unitIndex == unitIndex) return t.audioFilePath;
+    }
+    return null;
   }
 
   void _prefillAutoDetected() {
@@ -88,7 +134,12 @@ class _MiscueMarkingScreenState extends State<MiscueMarkingScreen> {
 
     final grade = sentences.first.grade;
     final language = sentences.first.language;
-    final level = sentences.first.level;
+    // Assigned-practice sessions mix sentences from several real levels,
+    // so sentences.first.level would be misleading (and would wrongly
+    // count towards that one level's progress bar / Calibration
+    // Insights bucket) — use the synthetic marker instead. Every other
+    // session type is unaffected.
+    final level = widget.args.isAssignedPractice ? 'assigned_practice' : sentences.first.level;
     final contentSetId = timedReadingContentSetId(grade: grade, language: language, level: level);
 
     try {
@@ -125,6 +176,22 @@ class _MiscueMarkingScreenState extends State<MiscueMarkingScreen> {
                 .map((g) => g - base)
                 .toList()
             : null;
+        // Sinhala only — move this unit's temp recording (tr_audio/) into
+        // permanent Parent Dashboard review storage (tr_audio_review/),
+        // now that the real session id exists to key the new filename.
+        // Only possible now, not in ReadingScreen where the file was
+        // first recorded — session_id doesn't exist until this insert.
+        // ignore: avoid_print
+        print('[TR] unit ${t.unitIndex} pre-move tempAudioFilePath=${t.audioFilePath}');
+        final movedAudioPath = t.audioFilePath == null
+            ? null
+            : await TimedReadingAudioRecorder.moveToReviewStorage(
+                tempPath: t.audioFilePath!,
+                sessionId: sessionId,
+                unitIndex: t.unitIndex,
+              );
+        // ignore: avoid_print
+        print('[TR] unit ${t.unitIndex} post-move movedAudioPath=$movedAudioPath');
         rows.add(TimedReadingUnitTimingRow(
           unitIndex: t.unitIndex,
           sentenceId: s.id,
@@ -132,12 +199,34 @@ class _MiscueMarkingScreenState extends State<MiscueMarkingScreen> {
           expectedMsSnapshot: (s.expectedTimeSec * 1000).round(),
           elapsedMs: t.elapsedMs,
           stalled: t.stalled,
+          tooFast: t.tooFast,
           noSpeechDetected: t.noSpeechDetected,
           autoMisreadIndexes: t.autoDetectedMisreadIndexes,
           finalMisreadIndexes: finalLocal,
+          audioFilePath: movedAudioPath,
         ));
       }
       await TimedReadingDao.insertUnitTimings(sessionId: sessionId, rows: rows);
+
+      if (widget.args.isAssignedPractice) {
+        // Mark exactly this session's own sentences completed — matched
+        // by sentence_id against still-pending rows, since ids weren't
+        // threaded all the way through ReadingScreenArgs/TimedReadingSession
+        // (which don't otherwise carry any assigned-practice-specific
+        // state). Dedupe-on-assign guarantees at most one pending row per
+        // sentence_id per profile, so this can't mark the wrong row.
+        final pending = await TimedReadingDao.getPendingPractice(
+          profileName: AppState.name,
+          grade: grade,
+          language: language,
+        );
+        final sentenceIds = sentences.map((s) => s.id).toSet();
+        final idsToComplete = pending
+            .where((r) => sentenceIds.contains(r['sentence_id'] as String))
+            .map((r) => r['id'] as int)
+            .toList();
+        await TimedReadingDao.markPracticeCompleted(idsToComplete);
+      }
 
       _consecutiveSaveFailures = 0;
       // ignore: avoid_print
@@ -265,16 +354,34 @@ class _MiscueMarkingScreenState extends State<MiscueMarkingScreen> {
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(color: AppColors.divider),
                             ),
-                            child: Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                for (final (idx, word) in rows[r])
-                                  _WordChip(
-                                    word: word,
-                                    misread: session.misreadWordIndexes.contains(idx),
-                                    onTap: () => _toggle(idx),
+                                if (isSinhala && _audioPathForUnit(r) != null)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: IconButton(
+                                      tooltip: 'අහන්න',
+                                      onPressed: () => _toggleAudio(r, _audioPathForUnit(r)!),
+                                      icon: Icon(
+                                        _playingUnitIndex == r ? Icons.stop_circle_rounded : Icons.volume_up_rounded,
+                                        color: AppColors.timedReading,
+                                        size: 26,
+                                      ),
+                                    ),
                                   ),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    for (final (idx, word) in rows[r])
+                                      _WordChip(
+                                        word: word,
+                                        misread: session.misreadWordIndexes.contains(idx),
+                                        onTap: () => _toggle(idx),
+                                      ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),

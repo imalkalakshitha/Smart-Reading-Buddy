@@ -32,6 +32,13 @@ import '../data/reading_data.dart';
 import '../data/encoding_data.dart';
 import '../data/writing_data.dart';
 import '../data/timed_reading_data.dart';
+import '../eduplay/eduplay_engine.dart';
+import '../eduplay/screens/eduplay_child_dashboard.dart';
+import '../eduplay/screens/activity_level_select.dart';
+import '../eduplay/screens/activity_screen.dart';
+import '../eduplay/screens/session_result_screen.dart';
+import '../eduplay/screens/parent_recommendation_screen.dart';
+import '../eduplay/feature_builder.dart';
 
 class AppRouter {
   static const splash               = '/';
@@ -57,6 +64,11 @@ class AppRouter {
   static const writingProgress     = '/writing/progress';
   static const calibration         = '/calibration';
   static const eduplay             = '/eduplay';
+  static const eduplayDashboard      = '/eduplay/dashboard';
+  static const eduplayLevelSelect    = '/eduplay/level-select';
+  static const eduplayActivity       = '/eduplay/activity';
+  static const eduplayResult         = '/eduplay/result';
+  static const eduplayParentRecommendation = '/eduplay/parent/recommendation';
   static const timedReading           = '/timed-reading';
   static const timedReadingSession    = '/timed-reading/session';
   static const timedReadingMiscue     = '/timed-reading/miscue';
@@ -136,6 +148,40 @@ class AppRouter {
       case timedReadingChallenge:
         final args = settings.arguments as ChallengeScreenArgs;
         return _slide(RepeatedReadingChallengeScreen(args: args));
+
+      case eduplayDashboard:
+        final childId = settings.arguments as String;
+        return _slide(EduPlayChildDashboard(childId: childId));
+
+      case eduplayLevelSelect:
+        final args = settings.arguments as Map<String, dynamic>;
+        return _slide(ActivityLevelSelectScreen(
+          childId: args['childId'] as String,
+          activityType: args['activityType'] as String,
+          grade: args['grade'] as String,
+          language: args['language'] as String,
+        ));
+
+      case eduplayActivity:
+        final args = settings.arguments as Map<String, dynamic>;
+        return _slide(ActivityScreen(
+          childId: args['childId'] as String,
+          activityType: args['activityType'] as String,
+          level: args['level'] as String,
+          grade: args['grade'] as String,
+          language: args['language'] as String,
+        ));
+
+      case eduplayResult:
+        final result = settings.arguments as EduPlaySessionResult;
+        return _fade(SessionResultScreen(result: result));
+
+      case eduplayParentRecommendation:
+        final args = settings.arguments as Map<String, dynamic>;
+        return _slide(ParentRecommendationScreen(
+          childId: args['childId'] as String,
+          engine: args['engine'] as EduPlayEngine,
+        ));
     }
     return null;
   }

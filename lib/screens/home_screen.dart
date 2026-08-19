@@ -7,11 +7,15 @@ import '../models/app_state.dart';
 import '../models/app_text.dart';
 import '../router/app_router.dart';
 import '../services/session_logger.dart';
+import 'calibration_insights_screen.dart';
+import 'parent_pin_screen.dart';
 
 const _avatarEmoji = {
   'owl': '🦉', 'tiger': '🐯', 'frog': '🐸',
   'fox': '🦊', 'panda': '🐼', 'lion': '🦁',
 };
+
+Widget _buildCalibrationInsights(BuildContext context) => const CalibrationInsightsScreen();
 
 // ── HomeScreen ────────────────────────────────────────────────────────────────
 
@@ -62,15 +66,17 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         onSettings: () {
           Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(AppText.comingSoon,
-                  style: GoogleFonts.nunito(
-                      color: Colors.white, fontWeight: FontWeight.w700)),
-              backgroundColor: AppColors.primary,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+          // Calibration Insights (researcher/admin aggregate view) —
+          // reuses the same Parent PIN gate as Parent Dashboard, just
+          // with a different destination after correct entry. Not real
+          // "Settings" yet; this is the one thing Settings currently
+          // leads to.
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ParentPinScreen(
+                destinationBuilder: _buildCalibrationInsights,
+              ),
             ),
           );
         },
@@ -194,7 +200,15 @@ class _HomeContent extends StatelessWidget {
                 description: 'Fun lessons & activities!',
                 gradientColors: const [Color(0xFF7B61FF), Color(0xFF5B41DF)],
                 delay: 380,
-                onTap: () => Navigator.pushNamed(context, AppRouter.eduplay),
+                // EduPlay's real dashboard now exists — points here
+                // instead of the ComingSoonPlaceholder at AppRouter.eduplay
+                // (that route/screen is left in place, just no longer
+                // linked from this card).
+                onTap: () => Navigator.pushNamed(
+                  context,
+                  AppRouter.eduplayDashboard,
+                  arguments: AppState.name,
+                ),
               ),
               _ActivityCard(
                 icon: '📖',

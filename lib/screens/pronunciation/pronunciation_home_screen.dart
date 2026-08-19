@@ -9,6 +9,7 @@ import '../../models/app_text.dart';
 import '../../models/local_storage.dart';
 import '../../router/app_router.dart';
 import '../../services/practice_suggestion_service.dart';
+import '../../widgets/level_progress_icon.dart';
 
 // Same avatar → emoji mapping used at profile creation (create_profile_screen.dart)
 // — reused here purely as a decorative mascot badge, no new image assets.
@@ -349,7 +350,6 @@ class _LevelCardState extends State<_LevelCard>
   @override
   Widget build(BuildContext context) {
     final stars = widget.level['stars'] as int;
-    final emoji = widget.level['emoji'] as String;
     final label = WordData.levelLabel(widget.level);
     final wordCount = WordData.forLevel(AppState.grade, widget.level['key'] as String).length;
 
@@ -403,7 +403,7 @@ class _LevelCardState extends State<_LevelCard>
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Center(
-                  child: Text(emoji, style: const TextStyle(fontSize: 32)),
+                  child: LevelProgressIcon(levelIndex: widget.index, size: 36),
                 ),
               ),
               const SizedBox(width: 16),

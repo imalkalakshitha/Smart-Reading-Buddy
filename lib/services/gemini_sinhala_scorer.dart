@@ -119,81 +119,78 @@ class GeminiSinhalaScorer {
   /// actually happened (null for NO_SPEECH/NO_INTERNET/error cases) — used
   /// for phonological substitution analysis, see
   /// phoneme_substitution_analyzer.dart.
-  static Future<({String verdict, String? transcript})> stopAndScore({
+  /// audioPath: only ever set for NO_INTERNET — the raw (unpreprocessed)
+  /// recording, kept specifically so HybridPronunciationScorer can hand it
+  /// straight to the offline DTW scorer as a fallback without a second
+  /// recording. Null for every other verdict — nothing else needs it.
+  static Future<({String verdict, String? transcript, String? audioPath})> stopAndScore({
     required String word,
     required int    gradeNum,
     // Optional per-call override — defaults to Pronunciation's own key so
     // every existing call site is unaffected. Timed Reading's speech
     // bridge passes ApiKeys.timedReadingGeminiApiKey explicitly here.
     String? apiKey,
+    // Optional, default-preserving — defaults to false so every existing
+    // Pronunciation call site keeps running AudioPreprocessor exactly as
+    // before. Timed Reading's speech bridge passes true: confirmed via
+    // live device testing that AudioPreprocessor's RMS-threshold trim
+    // (tuned for Pronunciation's short single-word clips) was cutting
+    // Timed Reading's full-sentence recordings down to just the first
+    // word, even on short, cleanly-bounded (manual "Done" button)
+    // recordings — later words fell below the trim's RMS floor and were
+    // discarded as "trailing silence". Timed Reading now has its own
+    // reliable start/stop boundary (tap-to-record / manual Done tap), so
+    // it doesn't need AudioPreprocessor's trim/gate/normalize protection
+    // the way Pronunciation's less-bounded single-word capture does.
+    bool skipPreprocessing = false,
   }) async {
     final path = await _recorder.stop();
-    if (path == null) return (verdict: 'WRONG', transcript: null);
+    if (path == null) return (verdict: 'WRONG', transcript: null, audioPath: null);
+
+    // Speech-presence and connectivity are both checked on the RAW file,
+    // before any preprocessing — deliberately, so that if there's no
+    // internet, the untouched recording is still available at [path] for
+    // a DTW fallback (see HybridPronunciationScorer.stopAndScore). Only
+    // once we know we're actually about to call Gemini does preprocessing
+    // run, exactly as before.
+    final Uint8List rawBytes;
+    try {
+      rawBytes = await File(path).readAsBytes();
+    } catch (_) {
+      return (verdict: 'WRONG', transcript: null, audioPath: null);
+    }
+
+    if (!_hasSpeech(rawBytes)) return (verdict: 'NO_SPEECH', transcript: null, audioPath: null);
+
+    if (!await _hasInternet()) {
+      return (verdict: 'NO_INTERNET', transcript: null, audioPath: path);
+    }
 
     final Uint8List bytes;
     try {
-      final stats = await AudioPreprocessor.process(path);
-      if (stats != null) {
-        // ignore: avoid_print
-        print('🎚️  Preprocess (si)  before: ${stats.$1}  after: ${stats.$2}');
+      if (!skipPreprocessing) {
+        await AudioPreprocessor.process(path);
       }
       bytes = await File(path).readAsBytes();
     } catch (_) {
-      return (verdict: 'WRONG', transcript: null);
-    }
-
-    if (!_hasSpeech(bytes)) return (verdict: 'NO_SPEECH', transcript: null);
-
-    if (!await _hasInternet()) {
-      // ignore: avoid_print
-      print('═══ GEMINI (si) ═══');
-      // ignore: avoid_print
-      print('No internet connection — Gemini unreachable');
-      // ignore: avoid_print
-      print('════════════════');
-      return (verdict: 'NO_INTERNET', transcript: null);
+      return (verdict: 'WRONG', transcript: null, audioPath: null);
     }
 
     try {
       final recognized = await _transcribeWithRetry(bytes, apiKey: apiKey);
       final matched    = _matches(recognized, word);
-
-      // ignore: avoid_print
-      print('═══ GEMINI (si) ═══');
-      // ignore: avoid_print
-      print('Expected  : "$word"');
-      // ignore: avoid_print
-      print('Gemini raw: "$recognized"');
-      // ignore: avoid_print
-      print('Result    : ${matched ? "OK (matched)" : "WRONG (unmatched)"}');
-      // ignore: avoid_print
-      print('════════════════');
-
-      return (verdict: matched ? 'OK' : 'WRONG', transcript: recognized);
-    } on TimeoutException catch (e) {
+      return (verdict: matched ? 'OK' : 'WRONG', transcript: recognized, audioPath: null);
+    } on TimeoutException {
       // A slow/unstable connection, not a mispronunciation — the pre-flight
       // _hasInternet() DNS check above can pass yet the actual request still
       // stall out. Treat the same as NO_INTERNET rather than silently
-      // scoring the child WRONG for a network hiccup.
-      // ignore: avoid_print
-      print('═══ GEMINI (si) ═══');
-      // ignore: avoid_print
-      print('Expected  : "$word"');
-      // ignore: avoid_print
-      print('Error     : $e (treated as NO_INTERNET — connection too slow)');
-      // ignore: avoid_print
-      print('════════════════');
-      return (verdict: 'NO_INTERNET', transcript: null);
-    } catch (e) {
-      // ignore: avoid_print
-      print('═══ GEMINI (si) ═══');
-      // ignore: avoid_print
-      print('Expected  : "$word"');
-      // ignore: avoid_print
-      print('Error     : $e');
-      // ignore: avoid_print
-      print('════════════════');
-      return (verdict: 'WRONG', transcript: null);
+      // scoring the child WRONG for a network hiccup. The raw file was
+      // already overwritten by preprocessing above in this branch, so no
+      // audioPath to offer here — DTW fallback only applies to the
+      // pre-flight NO_INTERNET case.
+      return (verdict: 'NO_INTERNET', transcript: null, audioPath: null);
+    } catch (_) {
+      return (verdict: 'WRONG', transcript: null, audioPath: null);
     }
   }
 
@@ -244,13 +241,6 @@ class GeminiSinhalaScorer {
       try {
         return await _transcribeWithRateLimitRetry(wavBytes, apiKey: apiKey);
       } on _GeminiModelNotFoundException catch (e) {
-        // ignore: avoid_print
-        print('═══ GEMINI (si) ═══');
-        // ignore: avoid_print
-        print('Model "${e.model}" returned 404 (not actually available on '
-            'this key) — clearing cache, trying next candidate');
-        // ignore: avoid_print
-        print('════════════════');
         _cachedModel = null;
         lastError = e;
         if (!_advanceCandidate()) break;
@@ -266,13 +256,6 @@ class GeminiSinhalaScorer {
     try {
       return await _transcribeOnce(wavBytes, apiKey: apiKey);
     } on _GeminiRateLimitException catch (e) {
-      // ignore: avoid_print
-      print('═══ GEMINI (si) ═══');
-      // ignore: avoid_print
-      print('429 rate limited — waiting ${e.retryAfterSeconds}s, retrying once');
-      // ignore: avoid_print
-      print('════════════════');
-
       isRetrying.value = true;
       try {
         await Future.delayed(Duration(seconds: e.retryAfterSeconds));

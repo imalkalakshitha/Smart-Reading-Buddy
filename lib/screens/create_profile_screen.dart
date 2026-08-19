@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../eduplay/eduplay_database.dart';
+import '../eduplay/eduplay_profile_mapper.dart';
 import '../models/app_colors.dart';
 import '../models/app_state.dart';
 import '../models/app_text.dart';
@@ -84,6 +86,31 @@ class _CreateProfileScreenState extends State<CreateProfileScreen> {
     AppState.avatar = _avatar;
     AppState.pin = _pin;
     await LocalStorage.saveProfile();
+
+    // EduPlay child profile — separate database (eduplay.db), keyed by
+    // the same `name` LocalStorage/UserProfile uses as its identifier
+    // (UserProfile has no separate id field; name is already the
+    // established join key across every EduPlay screen built so far —
+    // see EduPlayChildDashboard/ParentDashboardScreen/
+    // ParentWordBuildingAnalyticsScreen, all keyed by profile name).
+    // Grade/language are converted from LocalStorage's lowercase values
+    // to the Title Case EduPlay's task JSON/model expect.
+    await EduPlayDatabase.upsertChildProfile({
+      'child_id': name,
+      'grade': EduPlayProfileMapper.mapGrade(_grade),
+      'language': EduPlayProfileMapper.mapLanguage(AppState.language),
+      'starting_level': 'Basic',
+      'support_need_level': 'Medium',
+      'main_focus_area': 'letter_order',
+      'baseline_accuracy': 66.8,
+      // Column is baseline_response_time_sec (no trailing "s") — see
+      // eduplay_database.dart's CREATE TABLE. Using the wrong key here
+      // throws a DatabaseException at insert time.
+      'baseline_response_time_sec': 41.2,
+      'total_completed_activities': 0,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+
     if (!mounted) return;
     // Voice setup (calibration) step skipped — go straight to what it
     // used to hand off to.

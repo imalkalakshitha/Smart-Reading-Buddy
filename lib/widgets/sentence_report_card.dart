@@ -21,6 +21,27 @@ class SentenceReportCardData {
   final double upperThresholdSec;
   final int actualMs;
   final List<String> practiceWords;
+  // Sinhala only — this unit's own timed_reading_unit_timings row id (for
+  // the delete-on-listen DB update) and its audio_file_path (null if no
+  // recording exists or it's already been listened to/deleted). Both
+  // null for English, and null for any Sinhala row recorded before this
+  // feature existed.
+  final int? unitTimingId;
+  final String? audioFilePath;
+  // True if this unit's elapsedMs came in under its lowerThresholdSec —
+  // a plausibility/data-quality signal (e.g. a tap-through without
+  // genuinely reading aloud), not a punitive judgment. Parent Dashboard
+  // only — never shown on Results (removed there in an earlier round).
+  final bool tooFast;
+  // True if this unit's elapsedMs went over its upperThresholdSec.
+  // Carried here (alongside tooFast) purely so callers like "Practice
+  // These Again" can decide which sentences qualify for the queue without
+  // re-deriving it from raw DB rows — not read/displayed by this widget
+  // itself (the practice-note UI below already covers the same signal).
+  final bool stalled;
+  // Catalog id (SentenceSet.id) for this row — not shown, only used by
+  // "Practice These Again" to queue the right sentence.
+  final String? sentenceId;
 
   const SentenceReportCardData({
     required this.text,
@@ -28,13 +49,34 @@ class SentenceReportCardData {
     required this.upperThresholdSec,
     required this.actualMs,
     required this.practiceWords,
+    this.unitTimingId,
+    this.audioFilePath,
+    this.tooFast = false,
+    this.stalled = false,
+    this.sentenceId,
   });
 }
 
 class SentenceReportCard extends StatelessWidget {
   final SentenceReportCardData data;
+  // Optional Sinhala-only playback controls — all default off/null so
+  // this widget's only other caller (none currently besides
+  // parent_timed_reading_analytics_screen.dart, but kept additive on
+  // principle) is completely unaffected. When [hasAudio] is true, a 🔊
+  // button appears; actual playback state/logic lives in the parent
+  // (same pattern as MiscueMarkingScreen's own Listen button) since this
+  // widget has no AudioPlayer of its own.
+  final bool hasAudio;
+  final bool isPlaying;
+  final VoidCallback? onToggleListen;
 
-  const SentenceReportCard({super.key, required this.data});
+  const SentenceReportCard({
+    super.key,
+    required this.data,
+    this.hasAudio = false,
+    this.isPlaying = false,
+    this.onToggleListen,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +116,21 @@ class SentenceReportCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 const Icon(Icons.check_circle_rounded, color: AppColors.success, size: 20),
               ],
+              if (hasAudio) ...[
+                const SizedBox(width: 4),
+                IconButton(
+                  tooltip: 'අහන්න',
+                  onPressed: onToggleListen,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(),
+                  icon: Icon(
+                    isPlaying ? Icons.stop_circle_rounded : Icons.volume_up_rounded,
+                    color: AppColors.timedReading,
+                    size: 24,
+                  ),
+                ),
+              ],
             ],
           ),
           const SizedBox(height: 12),
@@ -83,14 +140,16 @@ class SentenceReportCard extends StatelessWidget {
               Expanded(
                 child: _StatBox(
                   label: isSinhala ? 'අපේක්ෂිත' : 'EXPECTED',
-                  value: _formatSec(data.expectedTimeSec),
+                  value: _formatSec((data.expectedTimeSec * 1000).round()),
+                  subValue: '${(data.expectedTimeSec * 1000).round()}ms',
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _StatBox(
                   label: isSinhala ? 'සැබෑ' : 'ACTUAL',
-                  value: _formatSec(actualSec),
+                  value: _formatSec(data.actualMs),
+                  subValue: '${data.actualMs}ms',
                 ),
               ),
             ],
@@ -105,6 +164,26 @@ class SentenceReportCard extends StatelessWidget {
                 Flexible(
                   child: Text(
                     isSinhala ? 'මෙහි වැඩිපුර පුහුණුවක් උපකාරී විය හැක' : 'Extra practice could help here',
+                    style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.timedReading),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          // "Too fast" note — same gentle tone/size as the practice note
+          // above, deliberately worded as a plausibility check, not an
+          // accusation (no "cheating"/"skipped"/"fake").
+          if (data.tooFast) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.info_outline_rounded, size: 13, color: AppColors.timedReading),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    isSinhala
+                        ? 'මෙම වාක්‍යයට අපේක්ෂිතයට වඩා වේගවත් වූ බව පෙනේ — ඔවුන් එය හඬ නඟා කියෙව්වාද යන්න තහවුරු කර ගැනීම වටී'
+                        : 'Pace was faster than expected for this sentence — worth confirming they read it aloud',
                     style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.timedReading),
                   ),
                 ),
@@ -142,13 +221,11 @@ class SentenceReportCard extends StatelessWidget {
     );
   }
 
-  String _formatSec(double sec) {
-    final s = sec.round();
-    if (s < 60) return '${s}s';
-    final m = s ~/ 60;
-    final r = s % 60;
-    return '$m:${r.toString().padLeft(2, '0')}';
-  }
+  // Precise seconds (2 decimals) — replaces the old whole-second rounding,
+  // which made two genuinely different actual times (e.g. 4.1s vs 4.9s)
+  // both display as "5s". Raw ms shown as a smaller subValue line in
+  // _StatBox below it.
+  String _formatSec(int ms) => '${(ms / 1000).toStringAsFixed(2)}s';
 }
 
 /// Same visual pattern as ReadingScreen's _StatBox (label small on top,
@@ -158,8 +235,13 @@ class SentenceReportCard extends StatelessWidget {
 class _StatBox extends StatelessWidget {
   final String label;
   final String value;
+  // Optional smaller line below [value] — used here for the raw-ms
+  // reading (e.g. "4330ms") under the "4.33s" headline value. Null/
+  // omitted preserves the original single-line layout for any other
+  // caller.
+  final String? subValue;
 
-  const _StatBox({required this.label, required this.value});
+  const _StatBox({required this.label, required this.value, this.subValue});
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +256,10 @@ class _StatBox extends StatelessWidget {
           Text(label, style: GoogleFonts.nunito(fontSize: 10.5, fontWeight: FontWeight.w700, color: AppColors.textHint)),
           const SizedBox(height: 4),
           Text(value, style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w900, color: AppColors.textPrimary)),
+          if (subValue != null) ...[
+            const SizedBox(height: 2),
+            Text(subValue!, style: GoogleFonts.nunito(fontSize: 10.5, fontWeight: FontWeight.w600, color: AppColors.textHint)),
+          ],
         ],
       ),
     );

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -6,7 +7,9 @@ import '../../dao/timed_reading_dao.dart';
 import '../../data/timed_reading_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
+import '../../services/timed_reading_speech_bridge.dart';
 import '../../widgets/sentence_report_card.dart';
+import '../calibration_insights_screen.dart';
 
 /// One session's date + its avg(actual/expected) pace ratio, for the
 /// "Actual vs Expected" trend chart. 1.0 = exactly on the expected pace;
@@ -148,6 +151,19 @@ class _ParentTimedReadingAnalyticsScreenState extends State<ParentTimedReadingAn
           'Timed Reading',
           style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
         ),
+        actions: [
+          // Researcher/admin view, not per-child — safe to link directly
+          // here (no re-prompt) since reaching this screen already went
+          // through the Parent PIN gate via ParentDashboardScreen.
+          IconButton(
+            tooltip: 'Calibration Insights',
+            icon: const Icon(Icons.query_stats_rounded, color: AppColors.textPrimary),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CalibrationInsightsScreen()),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: _loading
@@ -210,6 +226,108 @@ class _SessionExpansionCardState extends State<_SessionExpansionCard> {
   bool _loading = false;
   List<SentenceReportCardData> _rows = [];
 
+  // ── Sinhala only: play-and-delete-on-listen for review audio ─────────
+  late final AudioPlayer _audioPlayer;
+  int? _playingUnitTimingId;
+
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer = AudioPlayer();
+    _audioPlayer.onPlayerComplete.listen((_) => _onPlaybackComplete());
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  Future<void> _onPlaybackComplete() async {
+    final unitTimingId = _playingUnitTimingId;
+    if (!mounted || unitTimingId == null) return;
+    setState(() => _playingUnitTimingId = null);
+
+    // Delete-on-listen: find the row that was just played, delete its
+    // file, clear its DB column, and update local state so the 🔊 button
+    // disappears immediately without a full re-query.
+    final idx = _rows.indexWhere((r) => r.unitTimingId == unitTimingId);
+    if (idx == -1) return;
+    final path = _rows[idx].audioFilePath;
+    if (path == null) return;
+
+    await TimedReadingAudioRecorder.deleteFiles([path]);
+    await TimedReadingDao.clearAudioFilePath(unitTimingId);
+    if (!mounted) return;
+    setState(() {
+      final old = _rows[idx];
+      _rows[idx] = SentenceReportCardData(
+        text: old.text,
+        expectedTimeSec: old.expectedTimeSec,
+        upperThresholdSec: old.upperThresholdSec,
+        actualMs: old.actualMs,
+        practiceWords: old.practiceWords,
+        unitTimingId: old.unitTimingId,
+        audioFilePath: null,
+        tooFast: old.tooFast,
+        stalled: old.stalled,
+        sentenceId: old.sentenceId,
+      );
+    });
+  }
+
+  bool _assigning = false;
+
+  /// Queues every row in this session that's either stalled, too-fast,
+  /// or had any practice (misread) words — the "worth a second look"
+  /// sentences, not the whole session. Confirmed with the user: this is
+  /// the intended filter, not "every sentence in the session".
+  Future<void> _assignPracticeAgain() async {
+    if (_assigning) return;
+    final r = widget.sessionRow;
+    final grade = r['grade'] as String;
+    final language = r['language'] as String;
+    final qualifying = _rows.where((row) =>
+        row.sentenceId != null &&
+        (row.stalled || row.tooFast || row.practiceWords.isNotEmpty));
+    final sentences = [
+      for (final row in qualifying) (sentenceId: row.sentenceId!, text: row.text),
+    ];
+    if (sentences.isEmpty) return;
+
+    setState(() => _assigning = true);
+    try {
+      await TimedReadingDao.assignSentencesForPractice(
+        profileName: AppState.name,
+        grade: grade,
+        language: language,
+        sentences: sentences,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(AppState.language == 'sinhala'
+            ? 'පුහුණුවීම සඳහා එකතු කරන ලදී'
+            : 'Added to practice')),
+      );
+    } finally {
+      if (mounted) setState(() => _assigning = false);
+    }
+  }
+
+  Future<void> _toggleListen(int unitTimingId, String path) async {
+    if (_playingUnitTimingId == unitTimingId) {
+      await _audioPlayer.stop();
+      if (mounted) setState(() => _playingUnitTimingId = null);
+      return;
+    }
+    try {
+      setState(() => _playingUnitTimingId = unitTimingId);
+      await _audioPlayer.play(DeviceFileSource(path));
+    } catch (_) {
+      if (mounted) setState(() => _playingUnitTimingId = null);
+    }
+  }
+
   Future<void> _loadUnitTimings() async {
     if (_loaded || _loading) return;
     setState(() => _loading = true);
@@ -244,6 +362,11 @@ class _SessionExpansionCardState extends State<_SessionExpansionCard> {
           upperThresholdSec: expectedSec * 1.8,
           actualMs: actualMs,
           practiceWords: practiceWords,
+          unitTimingId: u['id'] as int?,
+          audioFilePath: u['audio_file_path'] as String?,
+          tooFast: (u['too_fast'] as int? ?? 0) != 0,
+          stalled: (u['stalled'] as int? ?? 0) != 0,
+          sentenceId: u['sentence_id'] as String?,
         ));
       }
       if (!mounted) return;
@@ -305,7 +428,40 @@ class _SessionExpansionCardState extends State<_SessionExpansionCard> {
                     )
                   : Column(
                       children: [
-                        for (final row in _rows) SentenceReportCard(data: row),
+                        for (final row in _rows)
+                          SentenceReportCard(
+                            data: row,
+                            hasAudio: row.audioFilePath != null,
+                            isPlaying: row.unitTimingId != null && _playingUnitTimingId == row.unitTimingId,
+                            onToggleListen: (row.unitTimingId != null && row.audioFilePath != null)
+                                ? () => _toggleListen(row.unitTimingId!, row.audioFilePath!)
+                                : null,
+                          ),
+                        if (_rows.any((row) => row.stalled || row.tooFast || row.practiceWords.isNotEmpty)) ...[
+                          const SizedBox(height: 4),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _assigning ? null : _assignPracticeAgain,
+                              icon: _assigning
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.timedReading),
+                                    )
+                                  : const Icon(Icons.replay_rounded, size: 18, color: AppColors.timedReading),
+                              label: Text(
+                                AppState.language == 'sinhala' ? 'නැවත පුහුණු කරන්න' : 'Practice These Again',
+                                style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.timedReading),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: AppColors.timedReading),
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
             ),

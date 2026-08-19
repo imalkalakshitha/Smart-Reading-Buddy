@@ -3,6 +3,9 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_text.dart';
+import '../../eduplay/eduplay_database.dart';
+import '../../eduplay/eduplay_engine_holder.dart';
+import '../../eduplay/screens/parent_recommendation_screen.dart';
 import 'parent_pronunciation_analytics_screen.dart';
 import 'parent_reading_analytics_screen.dart';
 import 'parent_word_building_analytics_screen.dart';
@@ -10,14 +13,43 @@ import 'parent_writing_analytics_screen.dart';
 import 'parent_timed_reading_analytics_screen.dart';
 
 /// Parent dashboard landing screen — reached after the PIN gate.
-/// One card per learning module; only Pronunciation has real analytics
-/// wired up so far (that's this app's owner's module). The other three
-/// belong to teammates and are left as placeholders until they wire up
-/// their own data.
-class ParentDashboardScreen extends StatelessWidget {
+/// One card per learning module; only Pronunciation and Timed Reading
+/// have real analytics wired up so far. The other two belong to
+/// teammates and are left as placeholders until they wire up their own
+/// data.
+class ParentDashboardScreen extends StatefulWidget {
   final String profileName;
 
   const ParentDashboardScreen({super.key, required this.profileName});
+
+  @override
+  State<ParentDashboardScreen> createState() => _ParentDashboardScreenState();
+}
+
+class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
+  // The "Reading" card (ParentReadingAnalyticsScreen) is a teammate's
+  // module that's still just a ComingSoonPlaceholder stub — hidden here
+  // rather than deleted, since it may get properly implemented later.
+  // Flip to true (or just remove this flag/guard) once that module has
+  // real content. parent_reading_analytics_screen.dart itself is
+  // untouched — this only stops the grid from linking to it.
+  static const bool _showPlaceholderReadingCard = false;
+
+  String get profileName => widget.profileName;
+
+  bool _hasPendingEduPlayRecommendation = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPendingRecommendation();
+  }
+
+  Future<void> _checkPendingRecommendation() async {
+    final rec = await EduPlayDatabase.getPendingRecommendation(profileName);
+    if (!mounted) return;
+    setState(() => _hasPendingEduPlayRecommendation = rec != null);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,20 +72,21 @@ class ParentDashboardScreen extends StatelessWidget {
         accent: AppColors.wordBuilding,
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => const ParentWordBuildingAnalyticsScreen(),
+            builder: (_) => ParentWordBuildingAnalyticsScreen(childId: profileName),
           ),
         ),
       ),
-      _ModuleCard(
-        icon: Icons.menu_book_rounded,
-        label: AppText.reading,
-        accent: AppColors.reading,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const ParentReadingAnalyticsScreen(),
+      if (_showPlaceholderReadingCard)
+        _ModuleCard(
+          icon: Icons.menu_book_rounded,
+          label: AppText.reading,
+          accent: AppColors.reading,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const ParentReadingAnalyticsScreen(),
+            ),
           ),
         ),
-      ),
       _ModuleCard(
         icon: Icons.edit_rounded,
         label: AppText.writing,
@@ -74,6 +107,20 @@ class ParentDashboardScreen extends StatelessWidget {
           ),
         ),
       ),
+      if (_hasPendingEduPlayRecommendation)
+        _ModuleCard(
+          icon: Icons.games_rounded,
+          label: 'EduPlay Recommendation',
+          accent: AppColors.wordBuilding,
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ParentRecommendationScreen(
+                childId: profileName,
+                engine: EduPlayEngineHolder.instance,
+              ),
+            ),
+          ),
+        ),
     ];
 
     return Scaffold(

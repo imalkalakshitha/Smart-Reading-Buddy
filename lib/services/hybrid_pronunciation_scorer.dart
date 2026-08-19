@@ -10,8 +10,7 @@ import '../models/pronunciation_result.dart';
 import 'gemini_sinhala_scorer.dart';
 // ignore: unused_import
 import 'groq_sinhala_scorer.dart'; // FALLBACK — see stopAndScore/startRecording below
-// ignore: unused_import
-import 'pronunciation_scorer.dart'; // FALLBACK — see stopAndScore/startRecording below
+import 'pronunciation_scorer.dart'; // Sinhala NO_INTERNET fallback — see stopAndScore below
 import 'simple_pronunciation_scorer.dart';
 
 /// Hybrid pronunciation scorer — word verification + quality stars.
@@ -21,14 +20,15 @@ import 'simple_pronunciation_scorer.dart';
 ///            Unchanged — si_LK STT is not reliably available offline, but
 ///            en_US is standard on virtually every Android device.
 /// Sinhala  → GeminiSinhalaScorer (cloud multimodal transcription via
-///            REST, requires internet — see gemini_sinhala_scorer.dart).
-///            Retries once with backoff on Gemini 429 rate-limit
-///            responses (see GeminiSinhalaScorer.stopAndScore).
-///            GroqSinhalaScorer (Whisper large-v3 via Groq) and
-///            PronunciationScorer (offline MFCC/DTW, no internet needed,
-///            the deepest fallback) are the other experiments — both
-///            commented directly above each call site below, uncomment
-///            to switch to either.
+///            REST — see gemini_sinhala_scorer.dart). Retries once with
+///            backoff on Gemini 429 rate-limit responses (see
+///            GeminiSinhalaScorer.stopAndScore). When there's no internet,
+///            falls back to PronunciationScorer (offline MFCC/DTW),
+///            reusing the same raw recording Gemini already captured — no
+///            second attempt needed, no child-facing "no internet"
+///            message. GroqSinhalaScorer (Whisper large-v3 via Groq) is
+///            the other experiment — commented directly above its call
+///            site below, uncomment to switch to it.
 ///
 /// When English STT is completely unavailable the energy-envelope scorer
 /// (SimplePronunciationScorer) is used as a last resort.
@@ -284,23 +284,42 @@ class HybridPronunciationScorer {
     // default (Pronunciation's key) when omitted, so every existing call
     // site here is unaffected. Unused for English.
     String? geminiApiKey,
+    // Optional, default-preserving pass-through to
+    // GeminiSinhalaScorer.stopAndScore's skipPreprocessing — defaults to
+    // false so every existing call site here is unaffected. Unused for
+    // English. See GeminiSinhalaScorer.stopAndScore's doc for why Timed
+    // Reading sets this true.
+    bool skipPreprocessing = false,
   }) async {
     await _fallbackSub?.cancel();
     _fallbackSub = null;
 
     if (lang == 'si') {
-      // FALLBACK - uncomment to revert to the offline DTW/MFCC scorer
-      // final verdict = await PronunciationScorer.stopAndScore(
-      //     word: word, lang: lang, gradeNum: gradeNum);
-      // return _verdictToFallbackResult(verdict);
-
       // FALLBACK - uncomment to revert to Groq
       // final verdict = await GroqSinhalaScorer.stopAndScore(
       //     word: sinhalaScript ?? word, gradeNum: gradeNum);
       // return _verdictToFallbackResult(verdict);
 
       final result = await GeminiSinhalaScorer.stopAndScore(
-          word: sinhalaScript ?? word, gradeNum: gradeNum, apiKey: geminiApiKey);
+          word: sinhalaScript ?? word,
+          gradeNum: gradeNum,
+          apiKey: geminiApiKey,
+          skipPreprocessing: skipPreprocessing);
+
+      // No internet — rather than blocking the child with a message, fall
+      // back to the offline DTW/MFCC scorer (PronunciationScorer, already
+      // built/validated — this is the same fallback path that used to be
+      // commented out above). Reuses the raw WAV GeminiSinhalaScorer just
+      // recorded (see its audioPath doc comment) instead of asking for a
+      // second recording. If that path is somehow missing (recorder
+      // failed before any file existed), there's nothing to score — falls
+      // through to the ordinary NO_INTERNET result below as a last resort.
+      if (result.verdict == 'NO_INTERNET' && result.audioPath != null) {
+        final dtwVerdict = await PronunciationScorer.scoreFromFile(
+            path: result.audioPath!, word: word, lang: lang, gradeNum: gradeNum);
+        return _verdictToFallbackResult(dtwVerdict);
+      }
+
       return _verdictToFallbackResult(result.verdict, rawTranscript: result.transcript);
     }
 

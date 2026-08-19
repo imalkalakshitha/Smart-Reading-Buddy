@@ -5,15 +5,14 @@
 /// zero alterations), but this module now owns its own copy plus the
 /// extra per-sentence timing metadata reading_data.dart never had.
 ///
-/// expectedTimeSec/lowerThresholdSec/upperThresholdSec are sourced from
-/// Dyslexia_Reading_Dataset_v9.xlsx Sentence_Reference sheet — currently
-/// placeholder-quality (dataset notes: "Replace with actual time"),
-/// pending real child-timing calibration. lowerThresholdSec/
-/// upperThresholdSec are NOT from that dataset (it only supplied a
-/// single expected time per sentence) — they're a simple placeholder
-/// band (0.6x / 1.8x of expectedTimeSec) added here so ReadingScreen has
-/// something to flag "too fast"/"stalled" against today; replace with
-/// real per-sentence bounds once available.
+/// expectedTimeSec/lowerThresholdSec/upperThresholdSec are all sourced
+/// directly from Dyslexia_Reading_Dataset_v9.xlsx's Sentence_Reference
+/// sheet — expectedTimeSec from its Expected_Time column, lowerThresholdSec/
+/// upperThresholdSec from its Lower_Threshold/Upper_Threshold columns.
+/// (lowerThresholdSec/upperThresholdSec previously used a 0.6x/1.8x-of-
+/// expectedTimeSec placeholder band before the real xlsx values were
+/// wired in — every SentenceSet below was verified 120/120 matched by
+/// exact sentence text against the xlsx export at that time.)
 library;
 
 import '../models/timed_reading_session.dart';
@@ -61,183 +60,183 @@ class SentenceSet {
 // stays valid without any changes.
 
 const _grade3EnL1 = [
-  SentenceSet(id: 'tr_grade3_en_short_0', grade: 'grade3', language: 'english', level: 'level1', text: 'The cat sleeps.', wordCount: 3, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade3_en_short_1', grade: 'grade3', language: 'english', level: 'level1', text: 'Kids sing songs.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_2', grade: 'grade3', language: 'english', level: 'level1', text: 'He kicks ball.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_3', grade: 'grade3', language: 'english', level: 'level1', text: 'We love school.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_4', grade: 'grade3', language: 'english', level: 'level1', text: 'They play games.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_5', grade: 'grade3', language: 'english', level: 'level1', text: 'The sun shines.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
+  SentenceSet(id: 'tr_grade3_en_short_0', grade: 'grade3', language: 'english', level: 'level1', text: 'The cat sleeps.', wordCount: 3, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade3_en_short_1', grade: 'grade3', language: 'english', level: 'level1', text: 'Kids sing songs.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_2', grade: 'grade3', language: 'english', level: 'level1', text: 'He kicks ball.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_3', grade: 'grade3', language: 'english', level: 'level1', text: 'We love school.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_4', grade: 'grade3', language: 'english', level: 'level1', text: 'They play games.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_5', grade: 'grade3', language: 'english', level: 'level1', text: 'The sun shines.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
 ];
 
 const _grade3EnL2 = [
-  SentenceSet(id: 'tr_grade3_en_short_6', grade: 'grade3', language: 'english', level: 'level2', text: 'He writes letters.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_7', grade: 'grade3', language: 'english', level: 'level2', text: 'We watch TV.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_en_short_8', grade: 'grade3', language: 'english', level: 'level2', text: 'Fish swim fast.', wordCount: 3, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade3_en_short_9', grade: 'grade3', language: 'english', level: 'level2', text: 'I eat rice.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_medium_0', grade: 'grade3', language: 'english', level: 'level2', text: 'She reads books.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_medium_1', grade: 'grade3', language: 'english', level: 'level2', text: 'I drink milk.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
+  SentenceSet(id: 'tr_grade3_en_short_6', grade: 'grade3', language: 'english', level: 'level2', text: 'He writes letters.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_7', grade: 'grade3', language: 'english', level: 'level2', text: 'We watch TV.', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_en_short_8', grade: 'grade3', language: 'english', level: 'level2', text: 'Fish swim fast.', wordCount: 3, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade3_en_short_9', grade: 'grade3', language: 'english', level: 'level2', text: 'I eat rice.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_medium_0', grade: 'grade3', language: 'english', level: 'level2', text: 'She reads books.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_medium_1', grade: 'grade3', language: 'english', level: 'level2', text: 'I drink milk.', wordCount: 3, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
 ];
 
 const _grade3EnL3 = [
-  SentenceSet(id: 'tr_grade3_en_medium_2', grade: 'grade3', language: 'english', level: 'level3', text: 'Birds fly high.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_medium_3', grade: 'grade3', language: 'english', level: 'level3', text: 'Dogs bark loudly.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_medium_4', grade: 'grade3', language: 'english', level: 'level3', text: 'She is drawing.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_medium_5', grade: 'grade3', language: 'english', level: 'level3', text: 'I go to school', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade3_en_medium_6', grade: 'grade3', language: 'english', level: 'level3', text: 'He eats an apple', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade3_en_medium_7', grade: 'grade3', language: 'english', level: 'level3', text: 'They are good friends', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
+  SentenceSet(id: 'tr_grade3_en_medium_2', grade: 'grade3', language: 'english', level: 'level3', text: 'Birds fly high.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_medium_3', grade: 'grade3', language: 'english', level: 'level3', text: 'Dogs bark loudly.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_medium_4', grade: 'grade3', language: 'english', level: 'level3', text: 'She is drawing.', wordCount: 3, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_medium_5', grade: 'grade3', language: 'english', level: 'level3', text: 'I go to school', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade3_en_medium_6', grade: 'grade3', language: 'english', level: 'level3', text: 'He eats an apple', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade3_en_medium_7', grade: 'grade3', language: 'english', level: 'level3', text: 'They are good friends', wordCount: 4, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
 ];
 
 const _grade3EnL4 = [
-  SentenceSet(id: 'tr_grade3_en_medium_8', grade: 'grade3', language: 'english', level: 'level4', text: 'The dog runs fast', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_medium_9', grade: 'grade3', language: 'english', level: 'level4', text: 'We play in garden', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_long_0', grade: 'grade3', language: 'english', level: 'level4', text: 'Cat sleeps on bed', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_long_1', grade: 'grade3', language: 'english', level: 'level4', text: 'She eats a mango', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_long_2', grade: 'grade3', language: 'english', level: 'level4', text: 'I have a pencil', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade3_en_long_3', grade: 'grade3', language: 'english', level: 'level4', text: 'Boy runs very fast', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
+  SentenceSet(id: 'tr_grade3_en_medium_8', grade: 'grade3', language: 'english', level: 'level4', text: 'The dog runs fast', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_medium_9', grade: 'grade3', language: 'english', level: 'level4', text: 'We play in garden', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_long_0', grade: 'grade3', language: 'english', level: 'level4', text: 'Cat sleeps on bed', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_long_1', grade: 'grade3', language: 'english', level: 'level4', text: 'She eats a mango', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_long_2', grade: 'grade3', language: 'english', level: 'level4', text: 'I have a pencil', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade3_en_long_3', grade: 'grade3', language: 'english', level: 'level4', text: 'Boy runs very fast', wordCount: 4, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
 ];
 
 const _grade3EnL5 = [
-  SentenceSet(id: 'tr_grade3_en_long_4', grade: 'grade3', language: 'english', level: 'level5', text: 'She reads a book', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_long_5', grade: 'grade3', language: 'english', level: 'level5', text: 'Birds fly in sky', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_long_6', grade: 'grade3', language: 'english', level: 'level5', text: 'We drink clean water', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade3_en_long_7', grade: 'grade3', language: 'english', level: 'level5', text: 'Sun shines in sky', wordCount: 4, expectedTimeSec: 6.0, lowerThresholdSec: 3.6, upperThresholdSec: 10.8),
-  SentenceSet(id: 'tr_grade3_en_long_8', grade: 'grade3', language: 'english', level: 'level5', text: 'We read story books.', wordCount: 4, expectedTimeSec: 6.0, lowerThresholdSec: 3.6, upperThresholdSec: 10.8),
-  SentenceSet(id: 'tr_grade3_en_long_9', grade: 'grade3', language: 'english', level: 'level5', text: 'We eat tasty food.', wordCount: 4, expectedTimeSec: 6.33, lowerThresholdSec: 3.8, upperThresholdSec: 11.39),
+  SentenceSet(id: 'tr_grade3_en_long_4', grade: 'grade3', language: 'english', level: 'level5', text: 'She reads a book', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_long_5', grade: 'grade3', language: 'english', level: 'level5', text: 'Birds fly in sky', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_long_6', grade: 'grade3', language: 'english', level: 'level5', text: 'We drink clean water', wordCount: 4, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade3_en_long_7', grade: 'grade3', language: 'english', level: 'level5', text: 'Sun shines in sky', wordCount: 4, expectedTimeSec: 6.0, lowerThresholdSec: 4.2, upperThresholdSec: 7.8),
+  SentenceSet(id: 'tr_grade3_en_long_8', grade: 'grade3', language: 'english', level: 'level5', text: 'We read story books.', wordCount: 4, expectedTimeSec: 6.0, lowerThresholdSec: 4.2, upperThresholdSec: 7.8),
+  SentenceSet(id: 'tr_grade3_en_long_9', grade: 'grade3', language: 'english', level: 'level5', text: 'We eat tasty food.', wordCount: 4, expectedTimeSec: 6.33, lowerThresholdSec: 4.43, upperThresholdSec: 8.23),
 ];
 
 const _grade3SiL1 = [
-  SentenceSet(id: 'tr_grade3_si_short_0', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'මම ගමට යමි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade3_si_short_1', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'ඔහු පාඩම් කරයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade3_si_short_2', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අම්මා බත් උයයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade3_si_short_3', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අක්කා පොතක් කියවයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade3_si_short_4', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අක්කා මිදුල අතුගායි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.6, upperThresholdSec: 4.79),
-  SentenceSet(id: 'tr_grade3_si_short_5', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'මල්ලි ඈතට දුවයි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.6, upperThresholdSec: 4.79),
+  SentenceSet(id: 'tr_grade3_si_short_0', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'මම ගමට යමි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade3_si_short_1', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'ඔහු පාඩම් කරයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade3_si_short_2', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අම්මා බත් උයයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade3_si_short_3', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අක්කා පොතක් කියවයි', wordCount: 3, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade3_si_short_4', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'අක්කා මිදුල අතුගායි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.86, upperThresholdSec: 3.46),
+  SentenceSet(id: 'tr_grade3_si_short_5', grade: 'grade3', language: 'sinhala', level: 'level1', text: 'මල්ලි ඈතට දුවයි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.86, upperThresholdSec: 3.46),
 ];
 
 const _grade3SiL2 = [
-  SentenceSet(id: 'tr_grade3_si_short_6', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'නැන්දා රෙදි සෝදයි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.6, upperThresholdSec: 4.79),
-  SentenceSet(id: 'tr_grade3_si_short_7', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'අපි සෙල්ලම් කරමු', wordCount: 3, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade3_si_short_8', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'ඇය ගසක් සිටුවයි', wordCount: 3, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade3_si_short_9', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'කමලා පන්තියට ආවාය', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade3_si_medium_0', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'මාමා බසය පදවයි', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade3_si_medium_1', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'ඔහු පොතක් කියවයි', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
+  SentenceSet(id: 'tr_grade3_si_short_6', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'නැන්දා රෙදි සෝදයි', wordCount: 3, expectedTimeSec: 2.66, lowerThresholdSec: 1.86, upperThresholdSec: 3.46),
+  SentenceSet(id: 'tr_grade3_si_short_7', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'අපි සෙල්ලම් කරමු', wordCount: 3, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade3_si_short_8', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'ඇය ගසක් සිටුවයි', wordCount: 3, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade3_si_short_9', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'කමලා පන්තියට ආවාය', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade3_si_medium_0', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'මාමා බසය පදවයි', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade3_si_medium_1', grade: 'grade3', language: 'sinhala', level: 'level2', text: 'ඔහු පොතක් කියවයි', wordCount: 3, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
 ];
 
 const _grade3SiL3 = [
-  SentenceSet(id: 'tr_grade3_si_medium_2', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'ගුරුතුමා කතාවක් කියවයි', wordCount: 3, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade3_si_medium_3', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'විමල් මලක් කැඩුවේය', wordCount: 3, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade3_si_medium_4', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'ඔවුහු ගෙදර ආවෝය', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade3_si_medium_5', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'මම රස කෙසෙල් කමි', wordCount: 4, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade3_si_medium_6', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'තාත්තා ගෙදර වැඩ කරයි', wordCount: 4, expectedTimeSec: 2.66, lowerThresholdSec: 1.6, upperThresholdSec: 4.79),
-  SentenceSet(id: 'tr_grade3_si_medium_7', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'සුදු පූසා කිරි බොයි', wordCount: 4, expectedTimeSec: 2.66, lowerThresholdSec: 1.6, upperThresholdSec: 4.79),
+  SentenceSet(id: 'tr_grade3_si_medium_2', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'ගුරුතුමා කතාවක් කියවයි', wordCount: 3, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade3_si_medium_3', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'විමල් මලක් කැඩුවේය', wordCount: 3, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade3_si_medium_4', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'ඔවුහු ගෙදර ආවෝය', wordCount: 3, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade3_si_medium_5', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'මම රස කෙසෙල් කමි', wordCount: 4, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade3_si_medium_6', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'තාත්තා ගෙදර වැඩ කරයි', wordCount: 4, expectedTimeSec: 2.66, lowerThresholdSec: 1.86, upperThresholdSec: 3.46),
+  SentenceSet(id: 'tr_grade3_si_medium_7', grade: 'grade3', language: 'sinhala', level: 'level3', text: 'සුදු පූසා කිරි බොයි', wordCount: 4, expectedTimeSec: 2.66, lowerThresholdSec: 1.86, upperThresholdSec: 3.46),
 ];
 
 const _grade3SiL4 = [
-  SentenceSet(id: 'tr_grade3_si_medium_8', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'අම්මා මට බත් කවයි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade3_si_medium_9', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'රෑට අහසේ තරු පායයි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade3_si_long_0', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'මල්ලි සෙල්ලම් බඩු ගනියි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade3_si_long_1', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'මම පාසල් යන්න කැමතියි', wordCount: 4, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade3_si_long_2', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'අම්මා රසට කෑම උයයි', wordCount: 4, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade3_si_long_3', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'ඇය වල් පැළ ගලවයි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
+  SentenceSet(id: 'tr_grade3_si_medium_8', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'අම්මා මට බත් කවයි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade3_si_medium_9', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'රෑට අහසේ තරු පායයි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade3_si_long_0', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'මල්ලි සෙල්ලම් බඩු ගනියි', wordCount: 4, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade3_si_long_1', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'මම පාසල් යන්න කැමතියි', wordCount: 4, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade3_si_long_2', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'අම්මා රසට කෑම උයයි', wordCount: 4, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade3_si_long_3', grade: 'grade3', language: 'sinhala', level: 'level4', text: 'ඇය වල් පැළ ගලවයි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
 ];
 
 const _grade3SiL5 = [
-  SentenceSet(id: 'tr_grade3_si_long_4', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'මම තනියම වැඩ කරමි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade3_si_long_5', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'කළු බල්ලා බුරමින් දුවයි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade3_si_long_6', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'ගඟේ මාළුන් පීනමින් සිටියි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade3_si_long_7', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'වැස්ස වෙලාවට කුඩය ගනිමි', wordCount: 4, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade3_si_long_8', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'අද උදේ කිරි බීවෙමි', wordCount: 4, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade3_si_long_9', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'හිරු උදේට පායමින් එයි', wordCount: 4, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
+  SentenceSet(id: 'tr_grade3_si_long_4', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'මම තනියම වැඩ කරමි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade3_si_long_5', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'කළු බල්ලා බුරමින් දුවයි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade3_si_long_6', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'ගඟේ මාළුන් පීනමින් සිටියි', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade3_si_long_7', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'වැස්ස වෙලාවට කුඩය ගනිමි', wordCount: 4, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade3_si_long_8', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'අද උදේ කිරි බීවෙමි', wordCount: 4, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade3_si_long_9', grade: 'grade3', language: 'sinhala', level: 'level5', text: 'හිරු උදේට පායමින් එයි', wordCount: 4, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
 ];
 
 const _grade4EnL1 = [
-  SentenceSet(id: 'tr_grade4_en_short_0', grade: 'grade4', language: 'english', level: 'level1', text: 'The teacher talks loudly.', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_en_short_1', grade: 'grade4', language: 'english', level: 'level1', text: 'I see a blue bird.', wordCount: 5, expectedTimeSec: 2.33, lowerThresholdSec: 1.4, upperThresholdSec: 4.19),
-  SentenceSet(id: 'tr_grade4_en_short_2', grade: 'grade4', language: 'english', level: 'level1', text: 'She reads a small book.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_3', grade: 'grade4', language: 'english', level: 'level1', text: 'The rat ran to hat.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_4', grade: 'grade4', language: 'english', level: 'level1', text: 'The bell rings in well.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_5', grade: 'grade4', language: 'english', level: 'level1', text: 'I like fresh green apples.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
+  SentenceSet(id: 'tr_grade4_en_short_0', grade: 'grade4', language: 'english', level: 'level1', text: 'The teacher talks loudly.', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_en_short_1', grade: 'grade4', language: 'english', level: 'level1', text: 'I see a blue bird.', wordCount: 5, expectedTimeSec: 2.33, lowerThresholdSec: 1.63, upperThresholdSec: 3.03),
+  SentenceSet(id: 'tr_grade4_en_short_2', grade: 'grade4', language: 'english', level: 'level1', text: 'She reads a small book.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_3', grade: 'grade4', language: 'english', level: 'level1', text: 'The rat ran to hat.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_4', grade: 'grade4', language: 'english', level: 'level1', text: 'The bell rings in well.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_5', grade: 'grade4', language: 'english', level: 'level1', text: 'I like fresh green apples.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
 ];
 
 const _grade4EnL2 = [
-  SentenceSet(id: 'tr_grade4_en_short_6', grade: 'grade4', language: 'english', level: 'level2', text: 'Birds fly in the sky.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_7', grade: 'grade4', language: 'english', level: 'level2', text: 'Dad drives to the office.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_8', grade: 'grade4', language: 'english', level: 'level2', text: 'We wash our hands daily.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_short_9', grade: 'grade4', language: 'english', level: 'level2', text: 'I pack my school bag.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_en_medium_0', grade: 'grade4', language: 'english', level: 'level2', text: 'We play in the garden.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_en_medium_1', grade: 'grade4', language: 'english', level: 'level2', text: 'The boy plays with toy.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
+  SentenceSet(id: 'tr_grade4_en_short_6', grade: 'grade4', language: 'english', level: 'level2', text: 'Birds fly in the sky.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_7', grade: 'grade4', language: 'english', level: 'level2', text: 'Dad drives to the office.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_8', grade: 'grade4', language: 'english', level: 'level2', text: 'We wash our hands daily.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_short_9', grade: 'grade4', language: 'english', level: 'level2', text: 'I pack my school bag.', wordCount: 5, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_en_medium_0', grade: 'grade4', language: 'english', level: 'level2', text: 'We play in the garden.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_en_medium_1', grade: 'grade4', language: 'english', level: 'level2', text: 'The boy plays with toy.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
 ];
 
 const _grade4EnL3 = [
-  SentenceSet(id: 'tr_grade4_en_medium_2', grade: 'grade4', language: 'english', level: 'level3', text: 'She paints a beautiful picture.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_en_medium_3', grade: 'grade4', language: 'english', level: 'level3', text: 'I read my book everyday', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_en_medium_4', grade: 'grade4', language: 'english', level: 'level3', text: 'The cat sat on mat.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_en_medium_5', grade: 'grade4', language: 'english', level: 'level3', text: 'The frog jumps on log.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_en_medium_6', grade: 'grade4', language: 'english', level: 'level3', text: 'The cat sleeps on sofa.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_en_medium_7', grade: 'grade4', language: 'english', level: 'level3', text: 'The ball is under table.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
+  SentenceSet(id: 'tr_grade4_en_medium_2', grade: 'grade4', language: 'english', level: 'level3', text: 'She paints a beautiful picture.', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_en_medium_3', grade: 'grade4', language: 'english', level: 'level3', text: 'I read my book everyday', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_en_medium_4', grade: 'grade4', language: 'english', level: 'level3', text: 'The cat sat on mat.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_en_medium_5', grade: 'grade4', language: 'english', level: 'level3', text: 'The frog jumps on log.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_en_medium_6', grade: 'grade4', language: 'english', level: 'level3', text: 'The cat sleeps on sofa.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_en_medium_7', grade: 'grade4', language: 'english', level: 'level3', text: 'The ball is under table.', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
 ];
 
 const _grade4EnL4 = [
-  SentenceSet(id: 'tr_grade4_en_medium_8', grade: 'grade4', language: 'english', level: 'level4', text: 'She does her homework daily', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_en_medium_9', grade: 'grade4', language: 'english', level: 'level4', text: 'The rain falls on trees.', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade4_en_long_0', grade: 'grade4', language: 'english', level: 'level4', text: 'Mom cooks tasty rice today.', wordCount: 5, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade4_en_long_1', grade: 'grade4', language: 'english', level: 'level4', text: 'He reads an interesting storybook.', wordCount: 5, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade4_en_long_2', grade: 'grade4', language: 'english', level: 'level4', text: 'The sky is so clear today.', wordCount: 6, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_en_long_3', grade: 'grade4', language: 'english', level: 'level4', text: 'The rat ran near old hat.', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
+  SentenceSet(id: 'tr_grade4_en_medium_8', grade: 'grade4', language: 'english', level: 'level4', text: 'She does her homework daily', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_en_medium_9', grade: 'grade4', language: 'english', level: 'level4', text: 'The rain falls on trees.', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade4_en_long_0', grade: 'grade4', language: 'english', level: 'level4', text: 'Mom cooks tasty rice today.', wordCount: 5, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade4_en_long_1', grade: 'grade4', language: 'english', level: 'level4', text: 'He reads an interesting storybook.', wordCount: 5, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade4_en_long_2', grade: 'grade4', language: 'english', level: 'level4', text: 'The sky is so clear today.', wordCount: 6, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_en_long_3', grade: 'grade4', language: 'english', level: 'level4', text: 'The rat ran near old hat.', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
 ];
 
 const _grade4EnL5 = [
-  SentenceSet(id: 'tr_grade4_en_long_4', grade: 'grade4', language: 'english', level: 'level5', text: 'The red apple is very sweet.', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade4_en_long_5', grade: 'grade4', language: 'english', level: 'level5', text: 'The kite flies high in sky.', wordCount: 6, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade4_en_long_6', grade: 'grade4', language: 'english', level: 'level5', text: 'The boy enjoys his new toy.', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade4_en_long_7', grade: 'grade4', language: 'english', level: 'level5', text: 'The goat walks near wet boat.', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade4_en_long_8', grade: 'grade4', language: 'english', level: 'level5', text: 'The bell rings near deep well.', wordCount: 6, expectedTimeSec: 5.66, lowerThresholdSec: 3.4, upperThresholdSec: 10.19),
-  SentenceSet(id: 'tr_grade4_en_long_9', grade: 'grade4', language: 'english', level: 'level5', text: 'The duck swims across small luck.', wordCount: 6, expectedTimeSec: 7.0, lowerThresholdSec: 4.2, upperThresholdSec: 12.6),
+  SentenceSet(id: 'tr_grade4_en_long_4', grade: 'grade4', language: 'english', level: 'level5', text: 'The red apple is very sweet.', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade4_en_long_5', grade: 'grade4', language: 'english', level: 'level5', text: 'The kite flies high in sky.', wordCount: 6, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade4_en_long_6', grade: 'grade4', language: 'english', level: 'level5', text: 'The boy enjoys his new toy.', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade4_en_long_7', grade: 'grade4', language: 'english', level: 'level5', text: 'The goat walks near wet boat.', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade4_en_long_8', grade: 'grade4', language: 'english', level: 'level5', text: 'The bell rings near deep well.', wordCount: 6, expectedTimeSec: 5.66, lowerThresholdSec: 3.96, upperThresholdSec: 7.36),
+  SentenceSet(id: 'tr_grade4_en_long_9', grade: 'grade4', language: 'english', level: 'level5', text: 'The duck swims across small luck.', wordCount: 6, expectedTimeSec: 7.0, lowerThresholdSec: 4.9, upperThresholdSec: 9.1),
 ];
 
 const _grade4SiL1 = [
-  SentenceSet(id: 'tr_grade4_si_short_0', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'අයියා බයිසිකල් තරගයෙන් දිනුවේය', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_short_1', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'අහසේ වලාකුළු අතරින් හඳ පෙනෙයි', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_si_short_2', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'ඈත අහසේ ඉර පායාගෙන එයි', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_si_short_3', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'යහළුවෝ පොහොය දිනයට පන්සල් යති', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_si_short_4', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'ගුරුතුමිය අපට අලුත් පාඩම් කියාදෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_short_5', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'කුඩා ළමයි මිදුලේ සතුටින් සෙල්ලම්කරති', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
+  SentenceSet(id: 'tr_grade4_si_short_0', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'අයියා බයිසිකල් තරගයෙන් දිනුවේය', wordCount: 4, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_short_1', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'අහසේ වලාකුළු අතරින් හඳ පෙනෙයි', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_si_short_2', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'ඈත අහසේ ඉර පායාගෙන එයි', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_si_short_3', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'යහළුවෝ පොහොය දිනයට පන්සල් යති', wordCount: 5, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_si_short_4', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'ගුරුතුමිය අපට අලුත් පාඩම් කියාදෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_short_5', grade: 'grade4', language: 'sinhala', level: 'level1', text: 'කුඩා ළමයි මිදුලේ සතුටින් සෙල්ලම්කරති', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
 ];
 
 const _grade4SiL2 = [
-  SentenceSet(id: 'tr_grade4_si_short_6', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'සැඩ සුළඟට ගස් වේගයෙන් සෙලවෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_short_7', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'පොත් කියවීමෙන් මිනිසා සම්පුර්ණ වෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_short_8', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'මම පාසල් ගොස් හොඳින් ඉගෙනගනිමි', wordCount: 5, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade4_si_short_9', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'අක්කගේ දුඹුරු පාට හැට්ටය ලස්සනයි', wordCount: 5, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade4_si_medium_0', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'උදෑසන අවදි වී දෙමාපියන් වඳින්නෙමි', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
-  SentenceSet(id: 'tr_grade4_si_medium_1', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'අපි ඉස්කෝලේ නිවාඩුවට ගමට ගියෙමු', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 2.6, upperThresholdSec: 7.79),
+  SentenceSet(id: 'tr_grade4_si_short_6', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'සැඩ සුළඟට ගස් වේගයෙන් සෙලවෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_short_7', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'පොත් කියවීමෙන් මිනිසා සම්පුර්ණ වෙයි', wordCount: 5, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_short_8', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'මම පාසල් ගොස් හොඳින් ඉගෙනගනිමි', wordCount: 5, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade4_si_short_9', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'අක්කගේ දුඹුරු පාට හැට්ටය ලස්සනයි', wordCount: 5, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade4_si_medium_0', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'උදෑසන අවදි වී දෙමාපියන් වඳින්නෙමි', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
+  SentenceSet(id: 'tr_grade4_si_medium_1', grade: 'grade4', language: 'sinhala', level: 'level2', text: 'අපි ඉස්කෝලේ නිවාඩුවට ගමට ගියෙමු', wordCount: 5, expectedTimeSec: 4.33, lowerThresholdSec: 3.03, upperThresholdSec: 5.63),
 ];
 
 const _grade4SiL3 = [
-  SentenceSet(id: 'tr_grade4_si_medium_2', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'අම්මා මට ලස්සන කතන්දර කියාදෙයි', wordCount: 5, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade4_si_medium_3', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'පොත් කියවීමෙන් අපේ දැනුම වැඩි වෙයි', wordCount: 6, expectedTimeSec: 3.0, lowerThresholdSec: 1.8, upperThresholdSec: 5.4),
-  SentenceSet(id: 'tr_grade4_si_medium_4', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'අපි පරිසරය පිරිසිදුව තබා ගත යුතුය', wordCount: 6, expectedTimeSec: 3.33, lowerThresholdSec: 2.0, upperThresholdSec: 5.99),
-  SentenceSet(id: 'tr_grade4_si_medium_5', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'වත්තේ ලස්සන රතු පාට මල් පිපෙයි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_medium_6', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'ගස උඩ සිටින කුරුල්ලා ගීත ගයයි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_medium_7', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'වැඩ අවසන් කර මම පොත් අසුරමි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
+  SentenceSet(id: 'tr_grade4_si_medium_2', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'අම්මා මට ලස්සන කතන්දර කියාදෙයි', wordCount: 5, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade4_si_medium_3', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'පොත් කියවීමෙන් අපේ දැනුම වැඩි වෙයි', wordCount: 6, expectedTimeSec: 3.0, lowerThresholdSec: 2.1, upperThresholdSec: 3.9),
+  SentenceSet(id: 'tr_grade4_si_medium_4', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'අපි පරිසරය පිරිසිදුව තබා ගත යුතුය', wordCount: 6, expectedTimeSec: 3.33, lowerThresholdSec: 2.33, upperThresholdSec: 4.33),
+  SentenceSet(id: 'tr_grade4_si_medium_5', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'වත්තේ ලස්සන රතු පාට මල් පිපෙයි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_medium_6', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'ගස උඩ සිටින කුරුල්ලා ගීත ගයයි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_medium_7', grade: 'grade4', language: 'sinhala', level: 'level3', text: 'වැඩ අවසන් කර මම පොත් අසුරමි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
 ];
 
 const _grade4SiL4 = [
-  SentenceSet(id: 'tr_grade4_si_medium_8', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'කෑමට පෙර අත් සබන් දා සෝදන්න', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_medium_9', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'නංගි පාට පැන්සල් වලින් ලස්සනට අඳියි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_long_0', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'අපි හැමෝම එකට එකතු වී වැඩකරමු', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.2, upperThresholdSec: 6.59),
-  SentenceSet(id: 'tr_grade4_si_long_1', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'මම මගේ පාසල් නිල ඇඳුම අඳින්නෙමි', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade4_si_long_2', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'සේපාලිකා මල් රෑට පිපී සුවඳ හමයි', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.4, upperThresholdSec: 7.2),
-  SentenceSet(id: 'tr_grade4_si_long_3', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'සඳ අහසේ තරුත් එක්ක ලස්සනට සිනාසෙයි', wordCount: 6, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
+  SentenceSet(id: 'tr_grade4_si_medium_8', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'කෑමට පෙර අත් සබන් දා සෝදන්න', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_medium_9', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'නංගි පාට පැන්සල් වලින් ලස්සනට අඳියි', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_long_0', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'අපි හැමෝම එකට එකතු වී වැඩකරමු', wordCount: 6, expectedTimeSec: 3.66, lowerThresholdSec: 2.56, upperThresholdSec: 4.76),
+  SentenceSet(id: 'tr_grade4_si_long_1', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'මම මගේ පාසල් නිල ඇඳුම අඳින්නෙමි', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade4_si_long_2', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'සේපාලිකා මල් රෑට පිපී සුවඳ හමයි', wordCount: 6, expectedTimeSec: 4.0, lowerThresholdSec: 2.8, upperThresholdSec: 5.2),
+  SentenceSet(id: 'tr_grade4_si_long_3', grade: 'grade4', language: 'sinhala', level: 'level4', text: 'සඳ අහසේ තරුත් එක්ක ලස්සනට සිනාසෙයි', wordCount: 6, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
 ];
 
 const _grade4SiL5 = [
-  SentenceSet(id: 'tr_grade4_si_long_4', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'අම්මා මට සිනි මුරුක්කු ගෙනත් දුන්නාය', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
-  SentenceSet(id: 'tr_grade4_si_long_5', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'පිළිහුඩුවා උස අත්තක නැගී වටපිට බලමින් සිටියි', wordCount: 7, expectedTimeSec: 4.66, lowerThresholdSec: 2.8, upperThresholdSec: 8.39),
-  SentenceSet(id: 'tr_grade4_si_long_6', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'කුරුල්ලෝ රංචුවක් සර සර ගාමින් ඉගිලී ගියෝය', wordCount: 7, expectedTimeSec: 5.0, lowerThresholdSec: 3.0, upperThresholdSec: 9.0),
-  SentenceSet(id: 'tr_grade4_si_long_7', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'තාත්තා මට දුන් ප්‍රහේලිකාව විසඳා අවසන් කලෙමි', wordCount: 7, expectedTimeSec: 5.66, lowerThresholdSec: 3.4, upperThresholdSec: 10.19),
-  SentenceSet(id: 'tr_grade4_si_long_8', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'ගමේ වැවේ ඕලු, නෙළුම්, මානෙල් පිපී හිනැහෙයි', wordCount: 7, expectedTimeSec: 6.0, lowerThresholdSec: 3.6, upperThresholdSec: 10.8),
-  SentenceSet(id: 'tr_grade4_si_long_9', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'වේගයෙන් එන මුහුදු රැල්ලක් ගලක හැපී විසිරී යයි', wordCount: 8, expectedTimeSec: 5.33, lowerThresholdSec: 3.2, upperThresholdSec: 9.59),
+  SentenceSet(id: 'tr_grade4_si_long_4', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'අම්මා මට සිනි මුරුක්කු ගෙනත් දුන්නාය', wordCount: 6, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
+  SentenceSet(id: 'tr_grade4_si_long_5', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'පිළිහුඩුවා උස අත්තක නැගී වටපිට බලමින් සිටියි', wordCount: 7, expectedTimeSec: 4.66, lowerThresholdSec: 3.26, upperThresholdSec: 6.06),
+  SentenceSet(id: 'tr_grade4_si_long_6', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'කුරුල්ලෝ රංචුවක් සර සර ගාමින් ඉගිලී ගියෝය', wordCount: 7, expectedTimeSec: 5.0, lowerThresholdSec: 3.5, upperThresholdSec: 6.5),
+  SentenceSet(id: 'tr_grade4_si_long_7', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'තාත්තා මට දුන් ප්‍රහේලිකාව විසඳා අවසන් කලෙමි', wordCount: 7, expectedTimeSec: 5.66, lowerThresholdSec: 3.96, upperThresholdSec: 7.36),
+  SentenceSet(id: 'tr_grade4_si_long_8', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'ගමේ වැවේ ඕලු, නෙළුම්, මානෙල් පිපී හිනැහෙයි', wordCount: 7, expectedTimeSec: 6.0, lowerThresholdSec: 4.2, upperThresholdSec: 7.8),
+  SentenceSet(id: 'tr_grade4_si_long_9', grade: 'grade4', language: 'sinhala', level: 'level5', text: 'වේගයෙන් එන මුහුදු රැල්ලක් ගලක හැපී විසිරී යයි', wordCount: 8, expectedTimeSec: 5.33, lowerThresholdSec: 3.73, upperThresholdSec: 6.93),
 ];
 
 // ── Word-splitting helper — shared by miscue marking + word-diff, called
@@ -330,6 +329,26 @@ List<SentenceSet> getTimedReadingSentences({
   const levelKeys = ['level1', 'level2', 'level3', 'level4', 'level5'];
   final index = levelKeys.indexOf(level);
   return List.unmodifiable(pools[index < 0 ? 0 : index]);
+}
+
+/// Looks up a single SentenceSet by its stable id, searching every grade/
+/// language/level bucket. Used by "Practice These Again" to turn a
+/// TimedReadingDao.getPendingPractice row's sentence_id back into a live
+/// SentenceSet (current thresholds) rather than storing a full snapshot —
+/// ids are stable across the catalog, so this always resolves for any id
+/// ever assigned. Returns null only if a sentence was removed from the
+/// catalog after being assigned (not expected in practice).
+SentenceSet? findTimedReadingSentenceById(String id) {
+  for (final grade in ['grade3', 'grade4']) {
+    for (final language in ['english', 'sinhala']) {
+      for (final level in ['level1', 'level2', 'level3', 'level4', 'level5']) {
+        for (final s in getTimedReadingSentences(grade: grade, language: language, level: level)) {
+          if (s.id == id) return s;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // ── Sentence reference audio (🔊 Listen button) ─────────────────────────
@@ -515,12 +534,20 @@ class MiscueMarkingArgs {
   final TimedReadingSession session;
   final int? attemptNumber;
   final int? previousWpm;
+  // True when this session was launched from the "Practice These Again"
+  // banner (ReadingScreenArgs.level == 'assigned_practice') — its
+  // sentences come from several different real levels/content sets, so
+  // _saveSession can't derive level from sentences.first.level the way
+  // every other session does. Also tells it to call
+  // TimedReadingDao.markPracticeCompleted on save.
+  final bool isAssignedPractice;
 
   const MiscueMarkingArgs({
     required this.sentences,
     required this.session,
     this.attemptNumber,
     this.previousWpm,
+    this.isAssignedPractice = false,
   });
 }
 

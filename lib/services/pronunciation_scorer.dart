@@ -72,7 +72,31 @@ class PronunciationScorer {
   }) async {
     final path = await _recorder.stop();
     if (path == null) return 'WRONG';
+    return _scoreFile(path: path, word: word, lang: lang, gradeNum: gradeNum);
+  }
 
+  /// Scores an already-recorded WAV at [path] instead of stopping this
+  /// scorer's own recorder — used by HybridPronunciationScorer's Sinhala
+  /// NO_INTERNET fallback, which hands over the raw file GeminiSinhalaScorer
+  /// already captured rather than making the child record a second time.
+  /// [path] must be a raw (unpreprocessed) 16kHz/mono/PCM WAV, same as
+  /// what this scorer's own [startRecording] produces — GeminiSinhalaScorer
+  /// uses an identical RecordConfig, so the MFCC pipeline below sees the
+  /// same input shape it was calibrated against either way.
+  static Future<String> scoreFromFile({
+    required String path,
+    required String word,
+    required String lang,
+    required int    gradeNum,
+  }) =>
+      _scoreFile(path: path, word: word, lang: lang, gradeNum: gradeNum);
+
+  static Future<String> _scoreFile({
+    required String path,
+    required String word,
+    required String lang,
+    required int    gradeNum,
+  }) async {
     try {
       final ref = await _loadRef(lang, 'grade$gradeNum', word);
       if (ref == null) return 'WRONG';

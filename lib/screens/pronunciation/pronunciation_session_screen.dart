@@ -8,6 +8,7 @@ import '../../data/pronunciation_args.dart';
 import '../../data/word_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
+import '../../models/local_storage.dart';
 import '../../router/app_router.dart';
 import '../../models/pronunciation_result.dart';
 import '../../services/coaching_strategy.dart';
@@ -220,16 +221,11 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       return;
     }
 
-    // No internet for Sinhala (Gemini) scoring — show a clear message,
-    // don't count as an attempt or consume a retry.
-    if (result.verdict == 'NO_INTERNET') {
-      setState(() { _lastResult = result; _showResult = true; });
-      _resultCtrl.forward(from: 0);
-      Future.delayed(const Duration(milliseconds: 1800), () {
-        if (mounted) setState(() => _showResult = false);
-      });
-      return;
-    }
+    // NOTE: NO_INTERNET used to be handled here (a "please check your
+    // connection" overlay). Removed — Sinhala's HybridPronunciationScorer
+    // now falls back to the offline DTW scorer instead of ever returning
+    // NO_INTERNET, so this branch is unreachable. See
+    // HybridPronunciationScorer.stopAndScore's Sinhala-branch doc comment.
 
     const scoreMap = {'OK': 0.9, 'ALMOST': 0.7, 'WRONG': 0.25};
     _allAttempts.add({
@@ -415,6 +411,12 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       debugPrint('[PEPA] FAILED to persist session for profileName="${AppState.name}": $e\n$st');
     }
 
+    // Auto-assignment — system-triggered counterpart to the parent's
+    // manual "Assign Practice" button, same LocalStorage slot. Purely
+    // additive: doesn't touch scoring, PEPA logging, or the manual flow
+    // above. See _autoAssignPracticeIfNeeded's doc for the exact rules.
+    await _autoAssignPracticeIfNeeded();
+
     if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
@@ -429,6 +431,56 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
         hardPhonemes: top,
         isAssignedPractice: widget.args.isAssignedPractice,
       ),
+    );
+  }
+
+  /// System-triggered counterpart to the parent's manual "Assign Practice"
+  /// button (_assignPractice in parent_pronunciation_analytics_screen.dart)
+  /// — same LocalStorage.setAssignedPractice/getAssignedPractice slot,
+  /// just written automatically at session-end instead of by a parent tap.
+  ///
+  /// Rules:
+  /// - Skips entirely if every attempt in THIS session was OK (nothing to
+  ///   auto-assign for a clean session).
+  /// - "Worst result" means WRONG phonemes if this session had any, else
+  ///   ALMOST phonemes — never picks from OK attempts. Ranked by frequency
+  ///   within that tier, same top-by-count approach _finish() already uses
+  ///   for `hardPhonemes`/`top`, just scoped to this session only (not
+  ///   overall PEPA history) and including ALMOST as a fallback tier.
+  /// - Never overwrites an existing pending assignment (parent-assigned or
+  ///   a prior auto-assignment) — checked via getAssignedPractice
+  ///   immediately before writing.
+  Future<void> _autoAssignPracticeIfNeeded() async {
+    final wrongPhonemes = <String>[];
+    final almostPhonemes = <String>[];
+    for (final a in _allAttempts) {
+      final result = a['result'] as String;
+      if (result == 'WRONG') {
+        wrongPhonemes.addAll((a['phonemes'] as String).split(','));
+      } else if (result == 'ALMOST') {
+        almostPhonemes.addAll((a['phonemes'] as String).split(','));
+      }
+    }
+
+    final source = wrongPhonemes.isNotEmpty ? wrongPhonemes : almostPhonemes;
+    if (source.isEmpty) return; // all-correct session — nothing to auto-assign
+
+    final counts = <String, int>{};
+    for (final p in source) {
+      counts[p] = (counts[p] ?? 0) + 1;
+    }
+    final worstPhoneme = (counts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .first
+        .key;
+
+    final existing = await LocalStorage.getAssignedPractice(AppState.name);
+    if (existing != null) return; // manual or prior auto-assignment takes priority
+
+    await LocalStorage.setAssignedPractice(
+      profileName: AppState.name,
+      phoneme: worstPhoneme,
+      language: AppState.language == 'sinhala' ? 'si' : 'en',
     );
   }
 
@@ -981,56 +1033,11 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       );
     }
 
-    // ── No internet for Sinhala (Gemini) scoring ───────────────────────────────
-    if (result.verdict == 'NO_INTERNET') {
-      return Positioned.fill(
-        child: Container(
-          color: Colors.black.withValues(alpha: 0.45),
-          child: Center(
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 32),
-              padding: const EdgeInsets.all(28),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.wifi_off_rounded,
-                      size: 56, color: Colors.orange),
-                  const SizedBox(height: 12),
-                  Text(
-                    AppState.language == 'sinhala'
-                        ? 'අන්තර්ජාලය අවශ්‍යයි!'
-                        : 'Internet needed for Sinhala practice',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.orange,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    AppState.language == 'sinhala'
-                        ? 'කරුණාකර සම්බන්ධතාවය පරීක්ෂා කර නැවත උත්සාහ කරන්න'
-                        : 'Please check your connection and try again',
-                    textAlign: TextAlign.center,
-                    style: GoogleFonts.nunito(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ).animate().fadeIn(duration: 300.ms),
-      );
-    }
-
     // ── Normal result ─────────────────────────────────────────────────────────
+    // NOTE: NO_INTERNET is no longer a reachable verdict here — Sinhala's
+    // HybridPronunciationScorer.stopAndScore now falls back to the offline
+    // DTW scorer instead of surfacing NO_INTERNET to the UI (see its doc
+    // comment). This overlay branch was removed along with that change.
     final isOk     = result.verdict == 'OK';
     final isAlmost = result.verdict == 'ALMOST';
     final color = isOk
@@ -1038,12 +1045,12 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
         : isAlmost
             ? AppColors.almost
             : AppColors.wrong;
-    final emoji = isOk ? '🎉' : isAlmost ? '👍' : '😅';
+    final emoji = isOk ? '🎉' : isAlmost ? '👍' : '💪';
     final label = isOk
         ? (AppState.language == 'sinhala' ? 'නියමයි!' : 'Great Job!')
         : isAlmost
             ? (AppState.language == 'sinhala' ? 'ආසන්නයි!' : 'Almost!')
-            : (AppState.language == 'sinhala' ? 'නැවත උත්සාහ කරන්න' : 'Try Again');
+            : (AppState.language == 'sinhala' ? 'හොඳ උත්සාහයක්! තව එකක්' : 'Nice try! One more time');
 
     final canAdvance = isOk || _failCount >= _maxFailsBeforeSkip;
     final isSkip = canAdvance && !isOk;
