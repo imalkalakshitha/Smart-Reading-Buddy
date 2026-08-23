@@ -16,10 +16,11 @@ import '../screens/reading/session_complete_screen.dart' as rc;
 import '../screens/encoding/onboarding_screen.dart';
 import '../screens/encoding/word_building_screen.dart';
 import '../screens/encoding/sentence_building_screen.dart';
-import '../screens/writing/writing_home_screen.dart';
 import '../screens/writing/letter_tracing_screen.dart';
 import '../screens/writing/word_tracing_screen.dart';
 import '../screens/writing/writing_progress_screen.dart';
+import '../screens/writing/free_drawing_letter_picker_screen.dart';
+import '../screens/writing/free_drawing_letter_level_screen.dart';
 import '../screens/calibration/calibration_screen.dart';
 import '../screens/timed_reading/timed_reading_home_screen.dart';
 import '../screens/timed_reading/reading_screen.dart';
@@ -62,6 +63,7 @@ class AppRouter {
   static const writingLetter       = '/writing/letter';
   static const writingWord         = '/writing/word';
   static const writingProgress     = '/writing/progress';
+  static const freeDrawingLetterLevel = '/writing/free-drawing/letter-level';
   static const calibration         = '/calibration';
   static const eduplay             = '/eduplay';
   static const eduplayDashboard      = '/eduplay/dashboard';
@@ -85,7 +87,7 @@ class AppRouter {
         pronunciation: (_) => const PronunciationHomeScreen(),
         reading:            (_) => const ReadingLevelScreen(),
         encodingOnboarding: (_) => const EncodingOnboardingScreen(),
-        writing:            (_) => const WritingHomeScreen(),
+        writing:            (_) => const FreeDrawingLetterPickerScreen(),
         calibration:        (_) => const CalibrationScreen(),
         eduplay:            (_) => const EduPlayJourneyScreen(),
         timedReading:       (_) => const TimedReadingHomeScreen(),
@@ -132,6 +134,10 @@ class AppRouter {
       case writingProgress:
         final args = settings.arguments as WritingArgs;
         return _slide(WritingProgressScreen(args: args));
+
+      case freeDrawingLetterLevel:
+        final target = settings.arguments as String;
+        return _slide(FreeDrawingLetterLevelScreen(initialTarget: target));
 
       case timedReadingSession:
         final args = settings.arguments as ReadingScreenArgs;

@@ -35,13 +35,14 @@ import 'simple_pronunciation_scorer.dart';
 ///
 /// English attempt audio: on-device STT never produces a WAV file (it's
 /// in-memory recognition, not file-based), so there's nothing to save
-/// from the actual scored utterance. A first attempt at solving this ran
-/// a second, independent `record`-package capture CONCURRENTLY with
-/// _stt.listen()/.stop() — confirmed on a real device to starve STT of
-/// mic input (NO_SPEECH/error_speech_timeout on clearly-spoken words),
-/// a platform-level mic-arbitration conflict (SpeechRecognizer runs in a
-/// separate OS process; a second AudioRecord session in ours isn't
-/// reliably supported alongside it). Reverted.
+/// from the actual scored utterance. Decision Fusion (STT word ID + DTW
+/// quality score on one shared recording) was attempted twice — both
+/// times running a `record`-package capture CONCURRENTLY with
+/// _stt.listen()/.stop() to get DTW a file, and both times confirmed on a
+/// real device to starve STT of mic input (NO_SPEECH/error_speech_timeout
+/// on clearly-spoken words; second confirmation 2026-08-22, "dog"/"pen",
+/// peak amplitude ~0.2). Reverted — do not re-attempt this exact
+/// concurrent-capture approach again, it has now failed twice.
 ///
 /// Current approach: SEQUENTIAL, not parallel. STT runs completely alone,
 /// exactly as before this feature existed — no capture during
@@ -54,6 +55,14 @@ import 'simple_pronunciation_scorer.dart';
 /// Kept on disk only for WRONG verdicts and capped to the last 5
 /// sessions — see session_logger.dart's cleanupOldAttemptAudio. Never
 /// feeds into or blocks STT/scoring in any way.
+///
+/// PronunciationScorer (DTW/MFCC) is not called from this English path —
+/// only from the Sinhala NO_INTERNET fallback below, where it already
+/// works correctly (that path never used concurrent capture and is
+/// unaffected by any of the above). PronunciationResult's dtwDistance/
+/// dtwVerdict/sttStrategy fields and word_attempts' matching DB columns
+/// are left in place, unused by English for now, in case Decision Fusion
+/// is revisited with a genuinely different capture strategy later.
 class HybridPronunciationScorer {
   HybridPronunciationScorer._();
 
@@ -125,55 +134,70 @@ class HybridPronunciationScorer {
   // Each entry lists likely mis-recognitions so a correct pronunciation still
   // scores OK even when the engine returns a near-miss.
 
+  // AUDITED — see this file's top-level doc comment history / the
+  // Decision Fusion revert notes for context. Entries removed below were
+  // independently-valid, differently-spelled, differently-meaning real
+  // English words (not mishearing spellings like 'kat', not true
+  // homophones like 'son'/'sun' or 'whether'/'weather') — accepting them
+  // as OK defeated Substitution Pattern Analysis, since a genuine
+  // phonological substitution (e.g. R/L confusion) never got flagged.
+  // 'right' (light/bright), 'brother' (bother), 'breed' (bread), 'stable'
+  // (table) were CONFIRMED false-accepts from real test data. A second
+  // round removed the borderline entries too, per explicit review:
+  // 'sung' (sun), 'pain' (pen), 'eyes' (ice), 'tighter' (tiger), 'plan'
+  // (plant), 'kit' (kite) — all judged "completely different meaning, no
+  // legitimate connection to the target word." 'pin' (pen, a genuine
+  // regional accent merger) and 'health' (healthy, a morphological
+  // variant of the same root) were explicitly kept.
   static const Map<String, List<String>> _englishPhonetics = {
     // ── Grade 3 English ─────────────────────────────────────────────────────
-    'cat':       ['cat', 'cats', 'kat', 'cut', 'cot'],
-    'dog':       ['dog', 'dogs', 'dawg', 'doug'],
-    'pig':       ['pig', 'pigs', 'pick', 'peak'],
-    'sun':       ['sun', 'son', 'sung'],
-    'pen':       ['pen', 'pin', 'pain'],
-    'fish':      ['fish', 'fishes', 'wish'],
-    'jump':      ['jump', 'jumps', 'pump'],
-    'rock':      ['rock', 'rocks', 'walk'],
-    'rain':      ['rain', 'rains', 'crane'],
-    'ship':      ['ship', 'ships', 'sheep', 'chip'],
-    'eat':       ['eat', 'eats', 'heat', 'it'],
-    'ice':       ['ice', 'eyes', 'nice'],
-    'open':      ['open', 'opens', 'ocean'],
-    'tiger':     ['tiger', 'tigers', 'tighter'],
+    'cat':       ['cat', 'cats', 'kat'],
+    'dog':       ['dog', 'dogs', 'dawg'],
+    'pig':       ['pig', 'pigs'],
+    'sun':       ['sun', 'son'], // 'son' = true homophone; 'sung' REMOVED
+    'pen':       ['pen', 'pin'], // 'pin' = kept, genuine regional accent merger; 'pain' REMOVED
+    'fish':      ['fish', 'fishes'],
+    'jump':      ['jump', 'jumps'],
+    'rock':      ['rock', 'rocks'],
+    'rain':      ['rain', 'rains'],
+    'ship':      ['ship', 'ships'],
+    'eat':       ['eat', 'eats'],
+    'ice':       ['ice'], // 'eyes' REMOVED
+    'open':      ['open', 'opens'],
+    'tiger':     ['tiger', 'tigers'], // 'tighter' REMOVED
     'pencil':    ['pencil', 'pencils'],
-    'bother':    ['bother', 'brother', 'bothers'],
-    'table':     ['table', 'tables', 'cable'],
+    'bother':    ['bother', 'bothers'], // 'brother' REMOVED — CONFIRMED false-accept
+    'table':     ['table', 'tables'],
     'mother':    ['mother', 'mothers'],
-    'river':     ['river', 'rivers', 'liver'],
-    'weather':   ['weather', 'whether', 'feather'],
-    'paper':     ['paper', 'papers', 'pepper'],
-    'window':    ['window', 'windows', 'widow'],
-    'green':     ['green', 'grain', 'greens'],
-    'beach':     ['beach', 'beaches', 'peach'],
-    'plant':     ['plant', 'plants', 'plan'],
-    'bread':     ['bread', 'breads', 'bred'],
-    'light':     ['light', 'lights', 'right', 'lite'],
+    'river':     ['river', 'rivers'], // 'liver' REMOVED — same R/L-confusion class as light/right
+    'weather':   ['weather', 'whether'], // 'whether' = true homophone; 'feather' REMOVED
+    'paper':     ['paper', 'papers'],
+    'window':    ['window', 'windows'],
+    'green':     ['green', 'greens'],
+    'beach':     ['beach', 'beaches'],
+    'plant':     ['plant', 'plants'], // 'plan' REMOVED
+    'bread':     ['bread', 'breads', 'bred'], // 'bred' = true homophone of 'bread'
+    'light':     ['light', 'lights', 'lite'], // 'right' REMOVED — CONFIRMED false-accept
     'computer':  ['computer', 'computers'],
     'sunshine':  ['sunshine', 'sunshines'],
     'butterfly': ['butterfly', 'butterflies'],
     // ── Grade 4 English ─────────────────────────────────────────────────────
-    'apple':     ['apple', 'apples', 'chapel'],
-    'tasty':     ['tasty', 'taste', 'tastes'],
+    'apple':     ['apple', 'apples'],
+    'tasty':     ['tasty', 'tastes'],
     'daily':     ['daily'],
-    'rings':     ['rings', 'ring', 'wings'],
+    'rings':     ['rings', 'ring'],
     'orange':    ['orange', 'oranges'],
     'happy':     ['happy', 'happily'],
-    'chair':     ['chair', 'chairs', 'cheer'],
-    'water':     ['water', 'waters', 'waiter'],
+    'chair':     ['chair', 'chairs'],
+    'water':     ['water', 'waters'],
     'animal':    ['animal', 'animals'],
-    'kite':      ['kite', 'kites', 'kit'],
-    'story':     ['story', 'stories', 'storey'],
+    'kite':      ['kite', 'kites'], // 'kit' REMOVED
+    'story':     ['story', 'stories', 'storey'], // true homophone
     'large':     ['large', 'larger'],
-    'morning':   ['morning', 'mornings', 'mourning'],
+    'morning':   ['morning', 'mornings', 'mourning'], // true homophone
     'teacher':   ['teacher', 'teachers'],
     'beautiful': ['beautiful', 'beautifully'],
-    'bright':    ['bright', 'brighter', 'right'],
+    'bright':    ['bright', 'brighter'], // 'right' REMOVED — same confirmed pair as 'light'
     'everyday':  ['everyday', 'every day'],
     'picture':   ['picture', 'pictures'],
     'homework':  ['homework'],
@@ -183,17 +207,59 @@ class HybridPronunciationScorer {
     'rainbow':   ['rainbow', 'rainbows'],
     'village':   ['village', 'villages'],
     'student':   ['student', 'students'],
-    'horse':     ['horse', 'horses', 'house'],
-    'healthy':   ['healthy', 'health'],
+    'horse':     ['horse', 'horses'],
+    'healthy':   ['healthy', 'health'], // kept — morphological variant, same root
+  };
+
+  // ── Known distinct real-word false-accepts (S3/S4 guard) ────────────────
+  //
+  // S3 (edit-distance ≤ 1) and S4 (similarity ≥ 75%) only measure spelling
+  // distance — they don't know whether the recognized text is actually a
+  // different, independently valid English word. Removing an entry from
+  // _englishPhonetics above isn't sufficient on its own: e.g. 'cat' vs
+  // 'cut' is edit-distance 1 with the same first letter, so S3 would
+  // re-accept 'cut' even after it's removed from the S2 table. This set
+  // closes that gap. No offline dictionary is bundled — scoped to the
+  // app's actual word lists (writing_data.dart / word_data.dart) plus
+  // their nearest real-word neighbours found during this audit, not a
+  // general-purpose dictionary. 'right', 'stable', 'breed', 'brother' are
+  // CONFIRMED false-accepts from real test data; 'sung', 'pain', 'eyes',
+  // 'tighter', 'plan', 'kit' were confirmed by explicit review as
+  // completely different meanings with no legitimate connection to their
+  // target word. 'pin' (pen) and 'health' (healthy) were deliberately
+  // NOT added — kept as legitimate near-misses (accent merger /
+  // morphological variant respectively). The rest below share the same
+  // audit criterion but weren't individually confirmed.
+  static const Set<String> knownDistinctRealWords = {
+    'right', 'brother', 'breed', 'stable', // CONFIRMED from real test data
+    'sung', 'pain', 'eyes', 'tighter', 'plan', 'kit', // CONFIRMED by explicit review — completely different meanings
+    'cut', 'cot', 'pick', 'peak', 'wish', 'pump', 'walk', 'crane',
+    'sheep', 'chip', 'heat', 'it', 'nice', 'ocean', 'liver', 'feather',
+    'pepper', 'widow', 'grain', 'peach', 'chapel', 'taste', 'wings',
+    'cheer', 'waiter', 'house', 'doug',
   };
 
   // ── Initialisation ────────────────────────────────────────────────────────
+
+  // Set by _stt's onError callback, read by stopAndScore to decide
+  // whether an empty result is worth a single automatic retry (see
+  // stopAndScore's English branch) — Android's on-device SpeechRecognizer
+  // confirmed (real-device testing) to sometimes spuriously fail to
+  // transcribe short single-syllable words like "sun"/"pen" on the first
+  // attempt even with a long, clear recording (totalListenMs measured at
+  // 7000ms+, so this is NOT a timing/duration issue — a minimum-listen-
+  // duration floor for short words was tried first and didn't help).
+  // Reset at the start of every startRecording() call.
+  static String? _lastErrorMsg;
 
   static Future<void> _ensureInit() async {
     if (_initAttempted) return;
     _initAttempted = true;
     _sttAvailable = await _stt.initialize(
-      onError:  (e) => debugPrint('STT error: ${e.errorMsg}'),
+      onError: (e) {
+        _lastErrorMsg = e.errorMsg;
+        debugPrint('STT error: ${e.errorMsg}');
+      },
       onStatus: (s) => debugPrint('STT status: $s'),
     );
     debugPrint(_sttAvailable
@@ -201,12 +267,33 @@ class HybridPronunciationScorer {
         : '⚠️  STT unavailable — using energy fallback');
   }
 
+  /// One live listen() call with the standard config — shared by
+  /// [startRecording] and stopAndScore's single automatic error_no_match
+  /// retry, so the retry uses the exact same options rather than a
+  /// second hand-copied config that could silently drift out of sync.
+  static Future<void> _listenOnce() => _stt.listen(
+        onResult: _onResult,
+        onSoundLevelChange: (level) {
+          final norm = ((level + 5) / 15).clamp(0.0, 1.0);
+          if (norm > _peakAmplitude) _peakAmplitude = norm;
+          _safeAdd(norm);
+        },
+        localeId: 'en_US',
+        pauseFor: const Duration(seconds: 3),
+        listenOptions: SpeechListenOptions(
+          listenMode:     ListenMode.dictation,
+          cancelOnError:  false,
+          partialResults: true,
+        ),
+      );
+
   // ── Recording ─────────────────────────────────────────────────────────────
 
   static Future<void> startRecording({String lang = 'en'}) async {
     _recognized    = '';
     _confidence    = 0.0;
     _peakAmplitude = 0.0;
+    _lastErrorMsg  = null;
     await _fallbackSub?.cancel();
     _fallbackSub = null;
 
@@ -232,21 +319,7 @@ class HybridPronunciationScorer {
       // as before this feature existed. See the class doc comment: any
       // WRONG-attempt recording happens sequentially, in stopAndScore,
       // only after _stt.stop() has fully released the mic.
-      await _stt.listen(
-        onResult: _onResult,
-        onSoundLevelChange: (level) {
-          final norm = ((level + 5) / 15).clamp(0.0, 1.0);
-          if (norm > _peakAmplitude) _peakAmplitude = norm;
-          _safeAdd(norm);
-        },
-        localeId: 'en_US',
-        pauseFor: const Duration(seconds: 3),
-        listenOptions: SpeechListenOptions(
-          listenMode:     ListenMode.dictation,
-          cancelOnError:  false,
-          partialResults: true,
-        ),
-      );
+      await _listenOnce();
     } else {
       // No STT at all — energy envelope scorer
       await SimplePronunciationScorer.startRecording();
@@ -336,8 +409,33 @@ class HybridPronunciationScorer {
     // Give the engine a moment to deliver the final result.
     await Future.delayed(const Duration(milliseconds: 500));
 
-    final recognized = _recognized.toLowerCase().trim();
-    final expected   = word.toLowerCase().trim();
+    var recognized = _recognized.toLowerCase().trim();
+    final expected  = word.toLowerCase().trim();
+
+    // ── Single automatic retry on error_no_match ─────────────────────────
+    // CONFIRMED via real-device testing + logcat (totalListenMs measured
+    // at 7000ms+, well past any silence/duration floor): this is not a
+    // timing issue — Android's on-device SpeechRecognizer can just
+    // spuriously fail to transcribe a short single-syllable word on one
+    // attempt. Re-running listen() once, immediately, in the same mic
+    // session context (no new prompt/UI, the child does nothing extra)
+    // resolves it in practice. Exactly one retry — never loops.
+    if (recognized.isEmpty && _lastErrorMsg == 'error_no_match') {
+      // ignore: avoid_print
+      print('⚠️  error_no_match — retrying STT once automatically');
+      _recognized   = '';
+      _confidence   = 0.0;
+      _lastErrorMsg = null;
+      await _listenOnce();
+      // Give the child a brief window, same shape as the original
+      // recording — this is a live listen, not a replay, so it needs
+      // actual time to (potentially) capture something.
+      await Future.delayed(const Duration(milliseconds: 1500));
+      await _stt.stop();
+      await Future.delayed(const Duration(milliseconds: 500));
+      recognized = _recognized.toLowerCase().trim();
+    }
+
     final confidence = _confidence;
 
     // ignore: avoid_print
@@ -532,16 +630,32 @@ class HybridPronunciationScorer {
     return candidate[0] == expected[0];
   }
 
-  /// Strategy 3's actual gate — see [_passesShortWordGuard].
+  /// True when [candidate] is a known-distinct real English word, not
+  /// [expected] itself — see [knownDistinctRealWords]'s doc comment.
+  /// Checked before the length-based [_passesShortWordGuard] and applies
+  /// regardless of word length: a low edit distance / high similarity
+  /// score is not evidence of a mishearing when the recognized text is
+  /// independently a real, different word — e.g. "bread" vs "breed" is
+  /// edit-distance 1 with a matching first letter (passes the short-word
+  /// guard) but "breed" is a real word with a different meaning, not a
+  /// phonetic near-miss of "bread".
+  static bool _isKnownDistinctRealWord(String candidate, String expected) =>
+      candidate != expected && knownDistinctRealWords.contains(candidate);
+
+  /// Strategy 3's actual gate — see [_passesShortWordGuard] and
+  /// [_isKnownDistinctRealWord].
   static bool _editDistanceMatch(String candidate, String expected) {
     if (candidate.isEmpty || expected.isEmpty) return false;
+    if (_isKnownDistinctRealWord(candidate, expected)) return false;
     if (_editDistance(candidate, expected) > 1) return false;
     return _passesShortWordGuard(candidate, expected);
   }
 
-  /// Strategy 4's actual gate — see [_passesShortWordGuard].
+  /// Strategy 4's actual gate — see [_passesShortWordGuard] and
+  /// [_isKnownDistinctRealWord].
   static bool _similarityMatch(String candidate, String expected) {
     if (candidate.isEmpty || expected.isEmpty) return false;
+    if (_isKnownDistinctRealWord(candidate, expected)) return false;
     if (_similarityRatio(candidate, expected) < 0.75) return false;
     return _passesShortWordGuard(candidate, expected);
   }

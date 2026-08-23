@@ -147,25 +147,25 @@ class _TimedReadingHomeScreenState extends State<TimedReadingHomeScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.pageBg,
+      // Flat brand-color AppBar, matching Pronunciation's header
+      // convention (pronunciation_home_screen.dart) instead of the plain
+      // unstyled Row this screen used before.
+      appBar: AppBar(
+        backgroundColor: AppColors.timedReading,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          isSinhala ? 'ඔබේ මට්ටම තෝරන්න' : 'Select Your Level',
+          style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+        ),
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  Text(
-                    isSinhala ? 'ඔබේ මට්ටම තෝරන්න' : 'Select Your Level',
-                    style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 4),
               if (_pendingPractice.isNotEmpty) ...[
                 _AssignedPracticeBanner(
                   isSinhala: isSinhala,
@@ -340,7 +340,10 @@ class _LevelSelectCard extends StatelessWidget {
                     children: [
                       Text(
                         title,
-                        style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                        // Matches Pronunciation's _LevelCard title size
+                        // (pronunciation_home_screen.dart) — was 16, a 4sp
+                        // mismatch against the equivalent card elsewhere.
+                        style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
                       ),
                       const SizedBox(height: 8),
                       if (locked)

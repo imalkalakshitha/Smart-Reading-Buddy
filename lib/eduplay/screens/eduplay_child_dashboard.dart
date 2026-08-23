@@ -1,25 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../models/app_text.dart';
 import '../eduplay_constants.dart';
 import '../eduplay_database.dart';
+import '../eduplay_si_text.dart';
 import 'activity_level_select.dart';
 
-// ── Palette — matches Pronunciation/Home screen exactly (see spec) ──────
+// ── Palette — app-wide green (#2ECC71) kept for brand consistency with
+// Home/Pronunciation, per lesson colors come from kLessonColors ──────────
 const _kPrimary = Color(0xFF2ECC71);
-const _kPrimaryLightBg = Color(0xFFE8F8F0);
+// Matches the EduPlay card's own gradient lead color on the Home screen
+// grid (home_screen.dart's _ActivityCard gradientColors), so this screen's
+// AppBar reads as the same module the child tapped into from Home — same
+// pattern Pronunciation's AppBar follows against its own Home card color.
+const _kHeaderAccent = Color(0xFF7B61FF);
 const _kBg = Color(0xFFFAFAF7);
 const _kTextPrimary = Color(0xFF1A1A1A);
 const _kTextSecondary = Color(0xFF6B7280);
 const _kBorder = Color(0xFFE5E7EB);
-const _kAmberBg = Color(0xFFFEF3C7);
 const _kAmberText = Color(0xFFD97706);
-const _kOrangeBg = Color(0xFFFEE2E2);
-const _kOrangeText = Color(0xFFDC2626);
-const _kBannerBg = Color(0xFFFFF7ED);
-const _kBannerBorder = Color(0xFFF59E0B);
 
-TextStyle _title24(Color color) =>
-    GoogleFonts.nunito(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: color);
 TextStyle _title20(Color color) =>
     GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: color);
 TextStyle _title18(Color color) =>
@@ -45,10 +45,9 @@ class EduPlayChildDashboard extends StatefulWidget {
 
 class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
   bool _loading = true;
-  int _totalXp = 0;
   Map<String, dynamic>? _activeAssignment;
-  int _streakDays = 0;
   Map<String, String> _skillAccuracy = {};
+  int _completedToday = 0;
 
   // Locked profile grade/language — read once from the child's own
   // EduPlay profile row, never offered as a UI choice.
@@ -63,9 +62,10 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
 
   Future<void> _load() async {
     final profile = await EduPlayDatabase.getChildProfile(widget.childId);
-    final totalXp = await EduPlayDatabase.getTotalXp(widget.childId);
     final activeAssignment = await EduPlayDatabase.getActiveAssignment(widget.childId);
-    final recentSessions = await EduPlayDatabase.getRecentSessions(widget.childId, limit: 20);
+    // limit raised from the old default of 20 so "today" isn't clipped
+    // once a child has practiced a lot historically.
+    final recentSessions = await EduPlayDatabase.getRecentSessions(widget.childId, limit: 200);
     final skillAccuracy = await EduPlayDatabase.getSkillAccuracyMap(widget.childId);
 
     if (!mounted) return;
@@ -74,35 +74,48 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
         _grade = profile['grade'] as String? ?? _grade;
         _language = profile['language'] as String? ?? _language;
       }
-      _totalXp = totalXp;
       _activeAssignment = activeAssignment;
-      _streakDays = _computeStreak(recentSessions);
       _skillAccuracy = skillAccuracy;
+      _completedToday = _computeCompletedToday(recentSessions);
       _loading = false;
     });
   }
 
-  int _computeStreak(List<Map<String, dynamic>> sessions) {
-    if (sessions.isEmpty) return 0;
-    final days = <DateTime>{};
+  int _computeCompletedToday(List<Map<String, dynamic>> sessions) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final types = <String>{};
     for (final s in sessions) {
       final dt = DateTime.tryParse(s['completed_at'] as String? ?? '');
-      if (dt != null) days.add(DateTime(dt.year, dt.month, dt.day));
+      if (dt == null) continue;
+      final day = DateTime(dt.year, dt.month, dt.day);
+      if (day == today) {
+        final type = s['activity_type'] as String?;
+        if (type != null) types.add(type);
+      }
     }
-    var streak = 0;
-    var cursor = DateTime.now();
-    cursor = DateTime(cursor.year, cursor.month, cursor.day);
-    while (days.contains(cursor)) {
-      streak++;
-      cursor = cursor.subtract(const Duration(days: 1));
-    }
-    return streak;
+    return types.length > 5 ? 5 : types.length;
   }
+
+  bool get _isSinhala => _language == 'Sinhala';
 
   @override
   Widget build(BuildContext context) {
+    final isSinhala = _isSinhala;
     return Scaffold(
       backgroundColor: _kBg,
+      // Matches Pronunciation's/Timed Reading's level-select AppBar
+      // pattern (colored bg, white back arrow + title) instead of the
+      // plain unstyled back-arrow Row this screen used before.
+      appBar: AppBar(
+        backgroundColor: _kHeaderAccent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          AppText.eduplay,
+          style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
+        ),
+      ),
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator(color: _kPrimary))
@@ -110,22 +123,16 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
                 onRefresh: _load,
                 color: _kPrimary,
                 child: ListView(
-                  padding: const EdgeInsets.only(bottom: 24),
+                  padding: const EdgeInsets.only(top: 16, bottom: 24),
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(4, 4, 16, 0),
-                      child: Row(
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_back_rounded, color: _kTextPrimary, size: 28),
-                            onPressed: () => Navigator.pop(context),
-                          ),
-                        ],
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: _HeroCard(childId: widget.childId, isSinhala: isSinhala),
                     ),
+                    const SizedBox(height: 16),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _HeaderCard(childId: widget.childId, totalXp: _totalXp, streakDays: _streakDays),
+                      child: _TodaysPracticeCard(completedToday: _completedToday, isSinhala: isSinhala),
                     ),
                     if (_activeAssignment != null) ...[
                       const SizedBox(height: 12),
@@ -133,6 +140,7 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: _AssignedLessonBanner(
                           assignment: _activeAssignment!,
+                          isSinhala: isSinhala,
                           onStart: () => _startActivity(_activeAssignment!['activity_type'] as String),
                         ),
                       ),
@@ -140,14 +148,16 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
                     const SizedBox(height: 20),
                     Padding(
                       padding: const EdgeInsets.only(left: 16),
-                      child: Text('My Activities', style: _title20(_kTextPrimary)),
+                      child: Text(isSinhala ? EduPlaySiText.yourLessons : 'Your Lessons', style: _title20(_kTextPrimary)),
                     ),
                     const SizedBox(height: 8),
-                    for (final activity in kActivityTypes)
-                      _ActivityCard(
-                        activityType: activity,
-                        accuracyLabel: _skillAccuracy[activity],
-                        onStart: () => _startActivity(activity),
+                    for (var i = 0; i < kActivityTypes.length; i++)
+                      _LessonCard(
+                        lessonNumber: i + 1,
+                        activityType: kActivityTypes[i],
+                        accuracyLabel: _skillAccuracy[kActivityTypes[i]],
+                        isSinhala: isSinhala,
+                        onStart: () => _startActivity(kActivityTypes[i]),
                       ),
                   ],
                 ),
@@ -174,19 +184,55 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
   }
 }
 
-class _HeaderCard extends StatelessWidget {
+class _HeroCard extends StatelessWidget {
   final String childId;
-  final int totalXp;
-  final int streakDays;
+  final bool isSinhala;
 
-  const _HeaderCard({required this.childId, required this.totalXp, required this.streakDays});
+  const _HeroCard({required this.childId, required this.isSinhala});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: _kPrimary, borderRadius: BorderRadius.circular(24)),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(isSinhala ? EduPlaySiText.heroTitle : 'Let\'s learn something new! 🌟', style: _title20(Colors.white)),
+                const SizedBox(height: 4),
+                Text(isSinhala ? EduPlaySiText.heroSubtitle : 'Pick a lesson and start your journey!',
+                    style: GoogleFonts.nunito(
+                        fontSize: 15, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: Colors.white.withValues(alpha: 0.8))),
+              ],
+            ),
+          ),
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.2), shape: BoxShape.circle),
+            child: const Center(child: Text('🦉', style: TextStyle(fontSize: 32))),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TodaysPracticeCard extends StatelessWidget {
+  final int completedToday;
+  final bool isSinhala;
+
+  const _TodaysPracticeCard({required this.completedToday, required this.isSinhala});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      margin: const EdgeInsets.symmetric(vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -195,40 +241,24 @@ class _HeaderCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Hello, $childId!', style: _title24(_kTextPrimary)),
-          const SizedBox(height: 12),
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _Chip(bg: _kAmberBg, textColor: _kAmberText, emoji: '⭐', label: '$totalXp XP'),
-              const SizedBox(width: 10),
-              _Chip(bg: _kOrangeBg, textColor: _kOrangeText, emoji: '🔥', label: '$streakDays days'),
+              Text(isSinhala ? EduPlaySiText.todaysPractice : "Today's Practice", style: _title18(_kTextPrimary)),
+              Text(isSinhala ? EduPlaySiText.nOf5Lessons(completedToday) : '$completedToday / 5 Lessons',
+                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kPrimary)),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Chip extends StatelessWidget {
-  final Color bg;
-  final Color textColor;
-  final String emoji;
-  final String label;
-
-  const _Chip({required this.bg, required this.textColor, required this.emoji, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(emoji, style: const TextStyle(fontSize: 15)),
-          const SizedBox(width: 5),
-          Text(label, style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: textColor)),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: completedToday / 5,
+              minHeight: 8,
+              backgroundColor: _kBorder,
+              color: _kPrimary,
+            ),
+          ),
         ],
       ),
     );
@@ -237,19 +267,25 @@ class _Chip extends StatelessWidget {
 
 class _AssignedLessonBanner extends StatelessWidget {
   final Map<String, dynamic> assignment;
+  final bool isSinhala;
   final VoidCallback onStart;
 
-  const _AssignedLessonBanner({required this.assignment, required this.onStart});
+  const _AssignedLessonBanner({required this.assignment, required this.isSinhala, required this.onStart});
 
   @override
   Widget build(BuildContext context) {
     final activityType = assignment['activity_type'] as String;
     final level = assignment['level'] as String;
+    final accent = kLessonColors[activityType] ?? _kPrimary;
+    final tint = kLessonBgTints[activityType] ?? const Color(0xFFFFF7ED);
+    final activityName = isSinhala
+        ? (EduPlaySiText.activityNames[activityType] ?? activityType)
+        : (kActivityDisplayNames[activityType] ?? activityType);
     return Container(
-      decoration: const BoxDecoration(
-        color: _kBannerBg,
-        borderRadius: BorderRadius.all(Radius.circular(20)),
-        border: Border(left: BorderSide(color: _kBannerBorder, width: 4)),
+      decoration: BoxDecoration(
+        color: tint,
+        borderRadius: const BorderRadius.all(Radius.circular(20)),
+        border: Border(left: BorderSide(color: accent, width: 4)),
       ),
       padding: const EdgeInsets.all(16),
       child: Row(
@@ -260,25 +296,30 @@ class _AssignedLessonBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Special task for you!', style: _title18(_kTextPrimary)),
+                Text(isSinhala ? EduPlaySiText.specialTask : 'Special task for you!', style: _title18(_kTextPrimary)),
                 const SizedBox(height: 4),
-                Text('${kActivityDisplayNames[activityType] ?? activityType} — $level', style: _small13(_kTextSecondary)),
+                Text('$activityName — $level', style: _small13(_kTextSecondary)),
               ],
             ),
           ),
           SizedBox(
-            width: 80,
+            width: isSinhala ? 108 : 80,
             height: 44,
             child: ElevatedButton(
               onPressed: onStart,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _kPrimary,
+                backgroundColor: accent,
                 foregroundColor: Colors.white,
                 elevation: 0,
-                padding: EdgeInsets.zero,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),
-              child: Text('Start', style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(isSinhala ? EduPlaySiText.start : 'Start',
+                    maxLines: 1,
+                    style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              ),
             ),
           ),
         ],
@@ -295,14 +336,18 @@ const Map<String, IconData> _kActivityIcons = {
   'sentence_quiz': Icons.quiz,
 };
 
-class _ActivityCard extends StatelessWidget {
+class _LessonCard extends StatelessWidget {
+  final int lessonNumber;
   final String activityType;
   final String? accuracyLabel; // null = "New"
+  final bool isSinhala;
   final VoidCallback onStart;
 
-  const _ActivityCard({
+  const _LessonCard({
+    required this.lessonNumber,
     required this.activityType,
     required this.accuracyLabel,
+    required this.isSinhala,
     required this.onStart,
   });
 
@@ -316,6 +361,8 @@ class _ActivityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final accent = kLessonColors[activityType] ?? _kPrimary;
+    final tint = kLessonBgTints[activityType] ?? const Color(0xFFE8F8F0);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       padding: const EdgeInsets.all(16),
@@ -324,41 +371,65 @@ class _ActivityCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: _kBorder, width: 1),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(color: _kPrimaryLightBg, borderRadius: BorderRadius.circular(14)),
-            child: Icon(_kActivityIcons[activityType] ?? Icons.games_rounded, color: _kPrimary, size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(kActivityDisplayNames[activityType] ?? activityType, style: _title18(_kTextPrimary)),
-                const SizedBox(height: 4),
-                Text(accuracyLabel ?? 'New', style: _small13(_accuracyColor(), weight: FontWeight.w700)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          SizedBox(
-            width: 90,
-            height: 44,
-            child: ElevatedButton(
-              onPressed: onStart,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _kPrimary,
-                foregroundColor: Colors.white,
-                elevation: 0,
-                padding: EdgeInsets.zero,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+          Text(isSinhala ? EduPlaySiText.lessonN(lessonNumber) : 'Lesson $lessonNumber',
+              style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: accent)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(16)),
+                child: Icon(_kActivityIcons[activityType] ?? Icons.games_rounded, color: accent, size: 28),
               ),
-              child: Text('Start', style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
-            ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                        isSinhala
+                            ? (EduPlaySiText.activityNames[activityType] ?? activityType)
+                            : (kActivityDisplayNames[activityType] ?? activityType),
+                        style: _title18(_kTextPrimary)),
+                    const SizedBox(height: 2),
+                    Text(
+                        isSinhala
+                            ? (EduPlaySiText.activityDescriptions[activityType] ?? '')
+                            : (kLessonDescriptions[activityType] ?? ''),
+                        style: _small13(_kTextSecondary)),
+                    const SizedBox(height: 4),
+                    Text(accuracyLabel ?? (isSinhala ? EduPlaySiText.newBadge : 'New'),
+                        style: _small13(_accuracyColor(), weight: FontWeight.w700)),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              SizedBox(
+                width: isSinhala ? 108 : 84,
+                height: 44,
+                child: ElevatedButton(
+                  onPressed: onStart,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(isSinhala ? EduPlaySiText.start : 'Start',
+                        maxLines: 1,
+                        style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

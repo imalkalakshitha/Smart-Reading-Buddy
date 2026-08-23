@@ -9,6 +9,19 @@ import 'package:record/record.dart';
 // ignore: constant_identifier_names
 const String RESULT_NO_SPEECH = 'NO_SPEECH';
 
+/// Full detail behind a DTW verdict — added for
+/// HybridPronunciationScorer's English decision-fusion path, which needs
+/// the raw distance/threshold to log (not just OK/ALMOST/WRONG) so
+/// STT/DTW agreement can be analysed later. [verdict] is exactly what
+/// [PronunciationScorer.scoreFromFile] already returned before this
+/// existed — nothing about that method's behaviour changed.
+class DtwScoreDetails {
+  final String verdict; // 'OK' | 'ALMOST' | 'WRONG' | 'NO_SPEECH'
+  final double? distance; // null when scoring never reached the DTW step (no ref, NO_SPEECH, error)
+  final double? okThreshold; // ref.threshold * _thresholdScale — the OK cutoff [distance] was compared against
+  const DtwScoreDetails({required this.verdict, this.distance, this.okThreshold});
+}
+
 class _Ref {
   final List<List<double>> mfcc; // [frames][_nMfcc]
   final double threshold;
@@ -72,7 +85,7 @@ class PronunciationScorer {
   }) async {
     final path = await _recorder.stop();
     if (path == null) return 'WRONG';
-    return _scoreFile(path: path, word: word, lang: lang, gradeNum: gradeNum);
+    return (await _scoreFile(path: path, word: word, lang: lang, gradeNum: gradeNum)).verdict;
   }
 
   /// Scores an already-recorded WAV at [path] instead of stopping this
@@ -88,10 +101,20 @@ class PronunciationScorer {
     required String word,
     required String lang,
     required int    gradeNum,
+  }) async =>
+      (await scoreDetailsFromFile(path: path, word: word, lang: lang, gradeNum: gradeNum)).verdict;
+
+  /// Same scoring as [scoreFromFile], but also returns the raw distance
+  /// and OK threshold behind the verdict — see [DtwScoreDetails].
+  static Future<DtwScoreDetails> scoreDetailsFromFile({
+    required String path,
+    required String word,
+    required String lang,
+    required int    gradeNum,
   }) =>
       _scoreFile(path: path, word: word, lang: lang, gradeNum: gradeNum);
 
-  static Future<String> _scoreFile({
+  static Future<DtwScoreDetails> _scoreFile({
     required String path,
     required String word,
     required String lang,
@@ -99,14 +122,14 @@ class PronunciationScorer {
   }) async {
     try {
       final ref = await _loadRef(lang, 'grade$gradeNum', word);
-      if (ref == null) return 'WRONG';
+      if (ref == null) return const DtwScoreDetails(verdict: 'WRONG');
 
       final samples = _readWav(path);
-      if (samples.length < _minSamples) return 'NO_SPEECH';
-      if (!_hasSpeech(samples))         return 'NO_SPEECH';
+      if (samples.length < _minSamples) return const DtwScoreDetails(verdict: 'NO_SPEECH');
+      if (!_hasSpeech(samples))         return const DtwScoreDetails(verdict: 'NO_SPEECH');
 
       final query = _computeMfcc(samples);
-      if (query.isEmpty) return 'WRONG';
+      if (query.isEmpty) return const DtwScoreDetails(verdict: 'WRONG');
 
       final dist = _dtwNorm(query, ref.mfcc);
       final thr  = ref.threshold * _thresholdScale;
@@ -128,12 +151,18 @@ class PronunciationScorer {
       // ignore: avoid_print
       print('ALM threshold: ${(thr * 1.20).toStringAsFixed(4)}');
 
-      if (dist <= thr)        { print('Result: OK\n════════════════'); return 'OK'; }
-      if (dist <= thr * 1.20) { print('Result: ALMOST\n════════════════'); return 'ALMOST'; }
+      if (dist <= thr) {
+        print('Result: OK\n════════════════');
+        return DtwScoreDetails(verdict: 'OK', distance: dist, okThreshold: thr);
+      }
+      if (dist <= thr * 1.20) {
+        print('Result: ALMOST\n════════════════');
+        return DtwScoreDetails(verdict: 'ALMOST', distance: dist, okThreshold: thr);
+      }
       print('Result: WRONG\n════════════════');
-      return 'WRONG';
+      return DtwScoreDetails(verdict: 'WRONG', distance: dist, okThreshold: thr);
     } catch (_) {
-      return 'WRONG';
+      return const DtwScoreDetails(verdict: 'WRONG');
     }
   }
 

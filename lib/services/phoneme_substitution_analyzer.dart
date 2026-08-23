@@ -1,26 +1,31 @@
+import 'cmu_phoneme_lookup.dart';
+
 /// Phonological Substitution Pattern Analysis — for a WRONG/ALMOST attempt,
 /// figures out WHAT the child said instead of the expected sound, by
 /// aligning the expected phoneme sequence (already tracked by PEPA, see
 /// word_data.dart's `phonemes` lists) against the raw transcript actually
 /// heard (PronunciationResult.rawTranscript).
 ///
-/// Important limitation, stated plainly rather than glossed over: there is
-/// no phonemizer/G2P engine anywhere in this app, so the "produced" side
-/// can't be a true phoneme sequence — it has to be approximated from the
-/// transcript text:
+/// Segmentation of the "produced" side:
 ///   - Sinhala: the transcript is already in Sinhala script, which is a
 ///     syllabic abugida — each grapheme cluster (base consonant + optional
 ///     vowel sign/virama) corresponds closely to one spoken syllable, which
 ///     is also how word_data.dart already chunks Sinhala phonemes (e.g.
 ///     'gə','mə'). Segmenting the transcript into grapheme clusters is a
-///     reasonable proxy for its syllable/phoneme sequence.
-///   - English: English orthography is not phonemic (letters don't map
-///     1:1 to sounds), and there's no G2P engine here to fix that. The
-///     best available proxy without adding a new dependency is splitting
-///     the recognized word into individual letters. This is cruder than
-///     the Sinhala case — a mismatch may reflect spelling-vs-sound quirks
-///     as much as an actual articulation substitution. Treat English
-///     substitution patterns as a lower-confidence signal than Sinhala's.
+///     reasonable proxy for its syllable/phoneme sequence. No G2P engine
+///     exists for Sinhala here, so this proxy is unchanged.
+///   - English: if the recognized transcript is itself a real word found in
+///     the bundled CMU Pronouncing Dictionary subset (see
+///     CmuPhonemeLookup — curriculum vocabulary only, offline), its true
+///     ARPABET phoneme sequence is used, aligned against the expected
+///     word's own CMU phonemes (also dictionary-sourced) rather than
+///     word_data.dart's IPA symbols — the two transcription systems don't
+///     mix meaningfully token-for-token. If either the expected or the
+///     produced word isn't in the CMU subset (gibberish, a fragment, a
+///     mishearing outside the curriculum), this falls back to the original
+///     letter-level proxy against word_data.dart's IPA phonemes for that
+///     one attempt only — English substitution patterns from that fallback
+///     path remain a lower-confidence signal, same caveat as before.
 ///
 /// Alignment itself (matching expected vs produced tokens position-by-
 /// position) uses standard Levenshtein edit-distance backtracking — a well
@@ -34,14 +39,26 @@ class PhonemeSubstitutionAnalyzer {
   /// Returns the list of (expected, produced) phoneme substitutions found
   /// by aligning [expectedPhonemes] against [rawTranscript]. Empty if there's
   /// nothing to align (no transcript, or sequences too different in length
-  /// to produce a meaningful alignment).
-  static List<({String expected, String produced})> extract({
+  /// to produce a meaningful alignment). [expectedWord] is only needed for
+  /// the English CMU-dictionary path (null/omitted falls straight back to
+  /// the letter-level proxy, e.g. for any pre-existing caller).
+  static Future<List<({String expected, String produced})>> extract({
     required List<String> expectedPhonemes,
     required String?      rawTranscript,
     required String       language,
-  }) {
+    String?                expectedWord,
+  }) async {
     if (rawTranscript == null || rawTranscript.trim().isEmpty) return [];
     if (expectedPhonemes.isEmpty) return [];
+
+    if (language != 'si' && expectedWord != null) {
+      final cmuPair = await _englishCmuPhonemes(expectedWord, rawTranscript);
+      if (cmuPair != null) {
+        return _alignSubstitutions(cmuPair.expected, cmuPair.produced);
+      }
+      // Not found in the CMU subset on one or both sides — fall through to
+      // the letter-level proxy below, same as the pre-CMU behavior.
+    }
 
     final produced = language == 'si'
         ? _sinhalaGraphemeClusters(rawTranscript)
@@ -49,6 +66,23 @@ class PhonemeSubstitutionAnalyzer {
     if (produced.isEmpty) return [];
 
     return _alignSubstitutions(expectedPhonemes, produced);
+  }
+
+  /// Looks up both [expectedWord] and the recognized text (first whitespace
+  /// token of [rawTranscript], e.g. STT sometimes returns a short phrase)
+  /// in the bundled CMU subset. Returns null unless BOTH resolve to a real
+  /// dictionary entry — a partial phoneme-level comparison (one side CMU,
+  /// one side letters) isn't meaningful.
+  static Future<({List<String> expected, List<String> produced})?> _englishCmuPhonemes(
+    String expectedWord,
+    String rawTranscript,
+  ) async {
+    final recognizedWord = rawTranscript.toLowerCase().trim().split(RegExp(r'\s+')).first;
+    final expectedPhon = await CmuPhonemeLookup.lookup(expectedWord);
+    if (expectedPhon == null) return null;
+    final producedPhon = await CmuPhonemeLookup.lookup(recognizedWord);
+    if (producedPhon == null) return null;
+    return (expected: expectedPhon, produced: producedPhon);
   }
 
   // ── Segmentation ─────────────────────────────────────────────────────────

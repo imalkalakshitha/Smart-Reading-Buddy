@@ -21,6 +21,22 @@ class PronunciationResult {
   // Sinhala, DTW/energy-fallback, and any non-WRONG English attempt.
   final String? audioPath;
 
+  // ── Decision Fusion (English only) ───────────────────────────────────
+  // Both raw signals behind the fused verdict, kept for logging/research
+  // (accuracy validation report, STT/DTW agreement analysis) — not used
+  // to drive any other UI. Null for Sinhala and for English attempts
+  // where DTW scoring didn't run (e.g. concurrent capture failed).
+
+  // Which text-match strategy STT satisfied: 'S1'..'S5', or null if none
+  // matched at all (verdict was WRONG on text alone).
+  final String? sttStrategy;
+  // Raw DTW distance from PronunciationScorer.scoreDetailsFromFile.
+  final double? dtwDistance;
+  // DTW's own independent verdict ('OK'/'ALMOST'/'WRONG'/'NO_SPEECH') —
+  // may differ from this result's fused [verdict]; that disagreement is
+  // exactly the signal being logged.
+  final String? dtwVerdict;
+
   const PronunciationResult({
     required this.verdict,
     required this.stars,
@@ -28,5 +44,8 @@ class PronunciationResult {
     this.confidence = 0.0,
     this.rawTranscript,
     this.audioPath,
+    this.sttStrategy,
+    this.dtwDistance,
+    this.dtwVerdict,
   });
 }

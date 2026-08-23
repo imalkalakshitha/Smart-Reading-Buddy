@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:printing/printing.dart';
 import '../../models/app_colors.dart';
 import '../../models/local_storage.dart';
 import '../../services/cross_language_analyzer.dart';
+import '../../services/pdf_report_service.dart';
 import '../../services/practice_suggestion_service.dart';
 import '../../services/session_logger.dart';
 import '../../utils/wav_waveform.dart';
@@ -49,9 +51,12 @@ class _ParentPronunciationAnalyticsScreenState
   List<Map<String, dynamic>> _phonemeStats = [];
   List<CrossLanguagePattern> _crossPatterns = [];
   List<Map<String, dynamic>> _substitutionPatterns = [];
+  List<Map<String, dynamic>> _wordConfusions = [];
   List<PracticeSuggestion> _practiceSuggestions = [];
   List<Map<String, dynamic>> _assignedPracticeHistory = [];
   List<Map<String, dynamic>> _wrongAttemptsWithAudio = [];
+  Map<String, dynamic>? _lastSession; // null = no session within the last 3 days
+  List<Map<String, dynamic>> _lastSessionAttempts = [];
   double? _trendDelta; // positive = improving, negative = declining, null = not enough data
   // Single-slot "active assignment" flag (LocalStorage.AssignedPractice —
   // see local_storage.dart, at most one per profile). Non-null suppresses
@@ -88,10 +93,18 @@ class _ParentPronunciationAnalyticsScreenState
     final trendDelta = _computeTrend(timeline);
     final substitutionPatterns =
         await SessionLogger.getTopSubstitutionPatterns(profileName: profileName);
+    final wordConfusions =
+        await SessionLogger.getTopWordConfusions(profileName: profileName);
+    final lastSession = await SessionLogger.getLastSessionWithinDays(profileName: profileName);
+    final lastSessionAttempts = lastSession == null
+        ? <Map<String, dynamic>>[]
+        : await SessionLogger.getWordAttemptsForSession(lastSession['session_id'] as int);
     final practiceSuggestions =
         await PracticeSuggestionService.getSuggestions(profileName: profileName);
+    // Fetched generously (not just the 3 shown by default) so "View all"
+    // can reuse the same in-memory list rather than a second query.
     final assignedPracticeHistory =
-        await SessionLogger.getAssignedPracticeHistory(profileName: profileName);
+        await SessionLogger.getAssignedPracticeHistory(profileName: profileName, limit: 100);
     final wrongAttemptsWithAudio =
         await SessionLogger.getWrongAttemptsWithAudio(profileName: profileName);
     final activeAssignedPractice = await LocalStorage.getAssignedPractice(profileName);
@@ -122,6 +135,9 @@ class _ParentPronunciationAnalyticsScreenState
       _practiceSuggestions = practiceSuggestions;
       _trendDelta = trendDelta;
       _substitutionPatterns = substitutionPatterns;
+      _wordConfusions = wordConfusions;
+      _lastSession = lastSession;
+      _lastSessionAttempts = lastSessionAttempts;
       _assignedPracticeHistory = assignedPracticeHistory;
       _wrongAttemptsWithAudio = wrongAttemptsWithAudio;
       _activeAssignedPractice = activeAssignedPractice;
@@ -189,6 +205,12 @@ class _ParentPronunciationAnalyticsScreenState
                       wordsPracticed: _wordAccuracy.totalWords,
                       streak: _streak,
                     ),
+                    const SizedBox(height: 12),
+                    _CompactFeatureButton(
+                      emoji: '📄',
+                      label: 'Export Report',
+                      onTap: () => _exportReport(context),
+                    ),
                     if (_trendDelta != null) ...[
                       const SizedBox(height: 16),
                       _TrendCard(delta: _trendDelta!),
@@ -222,6 +244,22 @@ class _ParentPronunciationAnalyticsScreenState
                         ],
                       ),
                     ],
+                    if (_wordConfusions.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _CompactFeatureButton(
+                        emoji: '🔤',
+                        label: 'Word Confusion Patterns',
+                        onTap: () => _showWordConfusionSheet(context),
+                      ),
+                    ],
+                    if (_lastSession != null) ...[
+                      const SizedBox(height: 12),
+                      _CompactFeatureButton(
+                        emoji: '📋',
+                        label: 'Last Session Review',
+                        onTap: () => _showLastSessionReview(context),
+                      ),
+                    ],
                     const SizedBox(height: 20),
                     _TroubleSoundsCard(stats: _phonemeStats, onAssign: _assignPractice),
                     if (_practiceSuggestions.isNotEmpty) ...[
@@ -230,10 +268,73 @@ class _ParentPronunciationAnalyticsScreenState
                     ],
                     if (_assignedPracticeHistory.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      _AssignedPracticeHistoryCard(history: _assignedPracticeHistory),
+                      _AssignedPracticeHistoryCard(
+                        history: _assignedPracticeHistory,
+                        onDelete: (sessionId) => _dismissHistoryEntry(context, sessionId),
+                        onViewAll: () => _showAllAssignedPracticeHistory(context),
+                      ),
                     ],
                   ],
                 ),
+    );
+  }
+
+  /// Confirms, then removes one entry from the Assigned Practice History
+  /// view only — see SessionLogger.dismissAssignedPracticeHistory's doc
+  /// comment: the underlying session/word_attempts/phoneme_attempts data
+  /// is untouched, this just stops that entry from showing up here.
+  /// Returns whether it was actually confirmed+deleted, so callers that
+  /// keep their own local copy of the list (see
+  /// _AllAssignedPracticeHistorySheet) don't remove a row the parent
+  /// then cancelled out of.
+  Future<bool> _dismissHistoryEntry(BuildContext context, int sessionId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove this practice record?'),
+        content: const Text("This can't be undone."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return false;
+
+    await SessionLogger.dismissAssignedPracticeHistory(
+      profileName: widget.profileName,
+      sessionId: sessionId,
+    );
+    if (!mounted) return true;
+    setState(() {
+      _assignedPracticeHistory = _assignedPracticeHistory.where((r) => r['sessionId'] != sessionId).toList();
+    });
+    return true;
+  }
+
+  /// Entry point for the Assigned Practice History card's "View all" —
+  /// same content already loaded in _assignedPracticeHistory (fetched
+  /// with a generous limit — see _load), just the full list instead of
+  /// the top-3 the card shows by default.
+  void _showAllAssignedPracticeHistory(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => _AllAssignedPracticeHistorySheet(
+        history: _assignedPracticeHistory,
+        onDelete: (sessionId) => _dismissHistoryEntry(context, sessionId),
+      ),
     );
   }
 
@@ -264,6 +365,55 @@ class _ParentPronunciationAnalyticsScreenState
         duration: const Duration(seconds: 2),
       ),
     );
+  }
+
+  /// Entry point for the "Export Report" button — asks which language the
+  /// PDF should be written in (the parent may be sharing it with an
+  /// English- or Sinhala-speaking professional, independent of the app's
+  /// own UI language), generates it, then hands off to the OS share sheet.
+  Future<void> _exportReport(BuildContext context) async {
+    final sinhala = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Report Language', style: GoogleFonts.nunito(fontWeight: FontWeight.w800)),
+        content: Text(
+          'Which language should the exported report use?',
+          style: GoogleFonts.nunito(color: AppColors.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text('English', style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text('සිංහල', style: GoogleFonts.nunito(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (sinhala == null || !mounted) return; // dialog dismissed
+
+    final grade = _profile?.grade == 'grade3'
+        ? 'Grade 3'
+        : _profile?.grade == 'grade4'
+            ? 'Grade 4'
+            : null;
+
+    final bytes = await PdfReportService.generate(
+      childName: _profile?.name ?? widget.profileName,
+      grade: grade,
+      sinhala: sinhala,
+      sessionCount: _sessionCount,
+      accuracy: _wordAccuracy.totalWords == 0 ? 0 : _wordAccuracy.correctWords / _wordAccuracy.totalWords,
+      wordsPracticed: _wordAccuracy.totalWords,
+      phonemeStats: _phonemeStats,
+      crossPatterns: _crossPatterns,
+      substitutionPatterns: _substitutionPatterns,
+    );
+
+    await Printing.sharePdf(bytes: bytes, filename: 'speech_progress_report.pdf');
   }
 
   /// Opens the sheet listing every phoneme currently meeting PEPA's
@@ -396,6 +546,67 @@ class _ParentPronunciationAnalyticsScreenState
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Entry point for the "🔤 Word Confusion Patterns" compact button.
+  /// Distinct from Sound Patterns: a full valid-word swap (e.g. "cat"
+  /// said instead of "sun"), not a phoneme-level mispronunciation.
+  void _showWordConfusionSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 12),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: AppColors.divider,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: _WordConfusionCard(confusions: _wordConfusions),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Entry point for the "📋 Last Session Review" compact button.
+  /// [_lastSession] is guaranteed non-null here (the button itself is
+  /// only rendered when it is — see the button row in build() above).
+  void _showLastSessionReview(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => _LastSessionReviewSheet(
+        session: _lastSession!,
+        attempts: _lastSessionAttempts,
+        onListen: (attempt) => _showWaveformComparison(sheetContext, attempt),
       ),
     );
   }
@@ -1278,6 +1489,312 @@ class _SubstitutionRow extends StatelessWidget {
   }
 }
 
+// ── Word Confusion Patterns ──────────────────────────────────────────────
+//
+// Distinct from Sound Patterns: a full valid-word swap (e.g. "cat" said
+// instead of "sun"), not a phoneme-level mispronunciation. Rows here
+// already come pre-filtered to confirmed patterns (occurrences >= 2 —
+// see SessionLogger.getTopWordConfusions), so every row shown is a real
+// pattern, not a one-off mishearing.
+
+class _WordConfusionCard extends StatelessWidget {
+  final List<Map<String, dynamic>> confusions;
+  const _WordConfusionCard({required this.confusions});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: const [
+          BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Word Confusion Patterns',
+            style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Your child may not be reading the word carefully before speaking, '
+            'or may be confusing similar-looking words.',
+            style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 16),
+          ...confusions.indexed.map((entry) {
+            final i = entry.$1;
+            final row = entry.$2;
+            return _WordConfusionRow(
+              expected: row['expected_word'] as String,
+              confused: row['confused_word'] as String,
+              occurrences: row['occurrences'] as int,
+            ).animate(delay: (i * 70).ms).fadeIn().slideX(begin: 0.1);
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _WordConfusionRow extends StatelessWidget {
+  final String expected;
+  final String confused;
+  final int occurrences;
+
+  const _WordConfusionRow({
+    required this.expected,
+    required this.confused,
+    required this.occurrences,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Said "$confused" instead of "$expected"',
+              style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              '$occurrences times',
+              style: GoogleFonts.nunito(fontSize: 12, fontWeight: FontWeight.w800, color: AppColors.primaryDark),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Last Session Review ──────────────────────────────────────────────────
+//
+// "What did my child actually say" for the most recent completed session
+// (within the last 3 days — see SessionLogger.getLastSessionWithinDays's
+// doc comment: a read-side query filter, no data is ever deleted). No
+// transcript text is ever available (English STT's recognized text is
+// never persisted, by design — see hybrid_pronunciation_scorer.dart);
+// WRONG attempts that still have a saved WAV (audio_path) get a "Listen"
+// tap into the existing Sound Wave Comparison view instead.
+
+class _LastSessionReviewSheet extends StatelessWidget {
+  final Map<String, dynamic> session;
+  final List<Map<String, dynamic>> attempts;
+  final void Function(Map<String, dynamic> attempt) onListen;
+
+  const _LastSessionReviewSheet({
+    required this.session,
+    required this.attempts,
+    required this.onListen,
+  });
+
+  String _formatDate(String? iso) {
+    final d = iso == null ? null : DateTime.tryParse(iso);
+    if (d == null) return '';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[d.month - 1]} ${d.day}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final grade = (session['grade'] as String?) == 'grade4' ? 'Grade 4' : 'Grade 3';
+    final dateLabel = _formatDate(session['date'] as String?);
+    final levelName = session['level_name'] as String?;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              'Last Session Review',
+              style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              [dateLabel, grade, if (levelName != null) levelName].where((s) => s.isNotEmpty).join(' · '),
+              style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            if (attempts.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No word attempts recorded for this session.',
+                    style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                ),
+              )
+            else
+              for (final attempt in attempts)
+                _LastSessionAttemptRow(
+                  attempt: attempt,
+                  grade: session['grade'] as String?,
+                  onListen: onListen,
+                ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LastSessionAttemptRow extends StatelessWidget {
+  final Map<String, dynamic> attempt;
+  final String? grade;
+  final void Function(Map<String, dynamic> attempt) onListen;
+
+  const _LastSessionAttemptRow({required this.attempt, required this.grade, required this.onListen});
+
+  @override
+  Widget build(BuildContext context) {
+    final word = attempt['word'] as String;
+    final result = attempt['result'] as String;
+    final audioPath = attempt['audio_path'] as String?;
+    final hasAudio = result == 'WRONG' && audioPath != null;
+    // Only shown for a genuine mismatch — an OK attempt matched the target,
+    // so "what they said" would just repeat the word already shown.
+    final recognizedText = attempt['recognized_text'] as String?;
+    final showSaid = (result == 'WRONG' || result == 'ALMOST') &&
+        recognizedText != null && recognizedText.trim().isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.primarySurface,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  word,
+                  style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                ),
+              ),
+              if (hasAudio) ...[
+                InkWell(
+                  onTap: () => onListen({'word': word, 'grade': grade, 'audio_path': audioPath}),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.pronunciation.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.graphic_eq_rounded, size: 14, color: AppColors.pronunciation),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Listen',
+                          style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: AppColors.pronunciation),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+              _VerdictBadge(verdict: result),
+            ],
+          ),
+          if (showSaid) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Said: "$recognizedText"',
+              style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// Verdict badge reused by Last Session Review — matches the app's
+/// existing verdict palette exactly (AppColors.success/almost/danger),
+/// so OK/ALMOST/WRONG read consistently with every other verdict shown
+/// elsewhere in the app. NO_SPEECH gets a new neutral grey badge (no
+/// prior styling existed for it) labeled in plain language.
+class _VerdictBadge extends StatelessWidget {
+  final String verdict;
+  const _VerdictBadge({required this.verdict});
+
+  ({String label, Color color}) get _display {
+    switch (verdict) {
+      case 'OK':
+        return (label: 'OK', color: AppColors.success);
+      case 'ALMOST':
+        return (label: 'Almost', color: AppColors.almost);
+      case 'WRONG':
+        return (label: 'Wrong', color: AppColors.danger);
+      case 'NO_SPEECH':
+        return (label: 'No sound detected', color: AppColors.textHint);
+      default:
+        return (label: verdict, color: AppColors.textHint);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = _display;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: d.color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        d.label,
+        style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: d.color),
+      ),
+    );
+  }
+}
+
 // ── All sound patterns (unfiltered — developing + confirmed) ────────────
 
 class _AllSoundPatternsSheet extends StatelessWidget {
@@ -1571,11 +2088,22 @@ class _PracticeSuggestionTileState extends State<_PracticeSuggestionTile> {
 
 class _AssignedPracticeHistoryCard extends StatelessWidget {
   final List<Map<String, dynamic>> history;
+  final Future<bool> Function(int sessionId) onDelete;
+  final VoidCallback onViewAll;
 
-  const _AssignedPracticeHistoryCard({required this.history});
+  static const int _defaultVisibleCount = 3;
+
+  const _AssignedPracticeHistoryCard({
+    required this.history,
+    required this.onDelete,
+    required this.onViewAll,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final visible = history.take(_defaultVisibleCount).toList();
+    final hasMore = history.length > _defaultVisibleCount;
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -1602,14 +2130,26 @@ class _AssignedPracticeHistoryCard extends StatelessWidget {
             style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 12),
-          ...history.indexed.map((entry) {
+          ...visible.indexed.map((entry) {
             final i = entry.$1;
             final row = entry.$2;
-            return _AssignedPracticeHistoryTile(row: row)
+            return _AssignedPracticeHistoryTile(row: row, onDelete: onDelete)
                 .animate(delay: (i * 70).ms)
                 .fadeIn()
                 .slideY(begin: 0.1);
           }),
+          if (hasMore)
+            Center(
+              child: TextButton.icon(
+                onPressed: onViewAll,
+                icon: const Icon(Icons.list_alt_rounded, size: 18),
+                label: Text('View all (${history.length})'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.pronunciation,
+                  textStyle: GoogleFonts.nunito(fontSize: 13.5, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1618,8 +2158,9 @@ class _AssignedPracticeHistoryCard extends StatelessWidget {
 
 class _AssignedPracticeHistoryTile extends StatelessWidget {
   final Map<String, dynamic> row;
+  final Future<bool> Function(int sessionId) onDelete;
 
-  const _AssignedPracticeHistoryTile({required this.row});
+  const _AssignedPracticeHistoryTile({required this.row, required this.onDelete});
 
   String _displaySound() {
     final phoneme = row['phoneme'] as String?;
@@ -1719,7 +2260,116 @@ class _AssignedPracticeHistoryTile extends StatelessWidget {
                 ),
               ],
             ),
+          Tooltip(
+            message: 'Remove this record',
+            child: InkWell(
+              onTap: () => onDelete(row['sessionId'] as int),
+              borderRadius: BorderRadius.circular(20),
+              child: Container(
+                margin: const EdgeInsets.only(left: 4),
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: AppColors.danger.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.danger),
+              ),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Full Assigned Practice History — behind the card's "View all" link.
+/// Manages its own local copy of [history] so a delete inside the sheet
+/// removes the row immediately (no waiting for the sheet to close and the
+/// dashboard behind it to rebuild) — [onDelete] still persists it via
+/// SessionLogger and syncs the dashboard's own list for when the sheet
+/// closes.
+class _AllAssignedPracticeHistorySheet extends StatefulWidget {
+  final List<Map<String, dynamic>> history;
+  final Future<bool> Function(int sessionId) onDelete;
+
+  const _AllAssignedPracticeHistorySheet({required this.history, required this.onDelete});
+
+  @override
+  State<_AllAssignedPracticeHistorySheet> createState() => _AllAssignedPracticeHistorySheetState();
+}
+
+class _AllAssignedPracticeHistorySheetState extends State<_AllAssignedPracticeHistorySheet> {
+  late List<Map<String, dynamic>> _history;
+
+  @override
+  void initState() {
+    super.initState();
+    _history = List.of(widget.history);
+  }
+
+  Future<bool> _handleDelete(int sessionId) async {
+    final deleted = await widget.onDelete(sessionId);
+    if (deleted && mounted) {
+      setState(() => _history.removeWhere((r) => r['sessionId'] == sessionId));
+    }
+    return deleted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              'All Assigned Practice History',
+              style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Results from every sound you assigned for extra practice.',
+              style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            if (_history.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Text(
+                    'No history left.',
+                    style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                ),
+              )
+            else
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.6),
+                child: SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      for (final row in _history)
+                        _AssignedPracticeHistoryTile(row: row, onDelete: _handleDelete),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

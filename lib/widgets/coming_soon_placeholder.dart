@@ -54,11 +54,6 @@ class ComingSoonPlaceholder extends StatelessWidget {
                 ),
                 textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 24),
-              OutlinedButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                child: const Text('Back'),
-              ),
             ],
           ),
         ),

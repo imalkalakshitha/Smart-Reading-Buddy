@@ -56,6 +56,19 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
   // permanently if it does. Not the same constant as Timed Reading's own
   // 2500ms silenceGrace (timed_reading_speech_bridge.dart) — untouched.
   static const Duration _vadSilenceGrace   = Duration(milliseconds: 1300);
+  // CONFIRMED from live testing: bumping _vadSilenceGrace alone (900ms ->
+  // 1300ms above) didn't fix it — short words (<=4 letters: pen/sun/cat/
+  // dog/pig/eat/ice) still returned error_no_match/NO_SPEECH at peak
+  // amplitude 1.0. Root cause isn't post-speech silence timing, it's
+  // Android's on-device SpeechRecognizer needing a minimum TOTAL session
+  // duration to finalize a short utterance reliably, regardless of how
+  // quickly silence is detected after it. This floor only delays when
+  // VAD is ALLOWED to fire _stopAndScore — it never extends recording
+  // for a word that's already run past this duration on its own.
+  static const Duration _minListenDurationForShortWords = Duration(milliseconds: 1400);
+  static const int _shortWordMaxLength = 4;
+  bool get _isShortWord => _currentWord.word.length <= _shortWordMaxLength;
+  DateTime? _recordingStartedAt;
   StreamSubscription<double>? _vadSub;
   bool _vadHasSpokenOnce = false;
   DateTime? _vadSilenceStartedAt;
@@ -74,6 +87,12 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
   // substitution — see PhonemeSubstitutionAnalyzer.
   final List<({String word, String language, List<({String expected, String produced})> substitutions})>
       _allSubstitutions = [];
+  // One entry per attempt where the recognized text was a different,
+  // independently-valid English word (a full word swap, e.g. "cat" said
+  // instead of "sun") rather than a phonetic mispronunciation — see
+  // _detectWordConfusion.
+  final List<({String expectedWord, String confusedWord, String language})>
+      _allWordConfusions = [];
   int _correct = 0;
   int _almost = 0;
   int _wrong = 0;
@@ -129,6 +148,53 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     }
   }
 
+  // Cached once — the curriculum's English word list (30 words) doubles as
+  // one of the two "is this a real word" sources for Word Confusion
+  // Patterns (see _detectWordConfusion). The other source,
+  // HybridPronunciationScorer.knownDistinctRealWords, is looked up live
+  // (already a static const, no need to cache).
+  static final Set<String> _curriculumEnglishWords =
+      WordData.allWordsForLanguage('en').map((w) => w.word.toLowerCase()).toSet();
+
+  /// Returns the confused word when [recognized] is a full, valid-word
+  /// swap for [expected] — e.g. "cat" said instead of "sun" — rather than
+  /// a phonetic mispronunciation or a truncated mishearing. Checked
+  /// regardless of verdict: an accepted phonetic-variant match (e.g.
+  /// "pin" for "pen") never qualifies, since neither word is in either
+  /// "real word" source (see the source sets' own doc comments — that's
+  /// deliberate, not an oversight).
+  ///
+  /// Real-word sources: the curriculum's own English word list, plus
+  /// HybridPronunciationScorer.knownDistinctRealWords (hand-audited
+  /// near-miss real words for those same curriculum words). No general
+  /// English dictionary is bundled in this project — see this feature's
+  /// design discussion for why these two sources were chosen instead of
+  /// adding one.
+  String? _detectWordConfusion({required String? recognized, required String expected}) {
+    if (recognized == null || recognized.isEmpty) return null;
+    final e = expected.toLowerCase().trim();
+    final whole = recognized.toLowerCase().trim();
+    final candidates = {whole, ...whole.split(RegExp(r'\s+'))};
+    for (final r in candidates) {
+      if (r.isEmpty || r == e) continue;
+      final isRealWord =
+          _curriculumEnglishWords.contains(r) || HybridPronunciationScorer.knownDistinctRealWords.contains(r);
+      if (isRealWord && !_isWordConfusionFragment(r, e)) return r;
+    }
+    return null;
+  }
+
+  /// True when the shorter of [a]/[b] is a truncated prefix of the longer
+  /// one AND under ~60% of its length — a partial mishearing (e.g. "pap"
+  /// of "paper"), not a distinct word swap, even when the shorter string
+  /// happens to independently be a real word too.
+  bool _isWordConfusionFragment(String a, String b) {
+    final shorter = a.length <= b.length ? a : b;
+    final longer  = a.length <= b.length ? b : a;
+    if (longer.isEmpty || !longer.startsWith(shorter)) return false;
+    return shorter.length / longer.length < 0.6;
+  }
+
   void _onMicTap() {
     // Single-tap-to-start only — recording stops itself via VAD auto-stop
     // (or the 7s ceiling), so a tap while already recording is a no-op.
@@ -136,6 +202,7 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     setState(() => _recording = true);
     _vadHasSpokenOnce   = false;
     _vadSilenceStartedAt = null;
+    _recordingStartedAt  = DateTime.now();
     _waveCtrl.repeat();
     final lang = AppState.language == 'sinhala' ? 'si' : 'en';
     HybridPronunciationScorer.startRecording(lang: lang);
@@ -163,6 +230,17 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     if (amplitude < _vadSilenceThreshold) {
       _vadSilenceStartedAt ??= DateTime.now();
       if (DateTime.now().difference(_vadSilenceStartedAt!) >= _vadSilenceGrace) {
+        // Short words: don't let VAD end the session before a minimum
+        // TOTAL listening duration has elapsed, even once the silence
+        // condition is individually satisfied — see
+        // _minListenDurationForShortWords' doc comment. Longer words are
+        // unaffected; this never fires for them.
+        if (_isShortWord && _recordingStartedAt != null) {
+          final elapsed = DateTime.now().difference(_recordingStartedAt!);
+          if (elapsed < _minListenDurationForShortWords) {
+            return; // keep listening — not enough total session time yet
+          }
+        }
         _stopAndScore();
       }
     } else {
@@ -178,6 +256,10 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     _vadSub = null;
     _waveCtrl.stop();
     _waveCtrl.reset();
+    if (_recordingStartedAt != null) {
+      final totalListenMs = DateTime.now().difference(_recordingStartedAt!).inMilliseconds;
+      debugPrint('[VAD] word="${_currentWord.word}" isShortWord=$_isShortWord totalListenMs=$totalListenMs');
+    }
     setState(() {
       _recording = false;
       _scoring   = true;
@@ -238,18 +320,44 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       // HybridPronunciationScorer's parallel attempt-audio capture and
       // PronunciationResult.audioPath's doc comment.
       'audio_path':     result.audioPath,
+      // Decision Fusion raw signals (English only) — see
+      // PronunciationResult's doc comment. Null for Sinhala/energy-fallback.
+      'stt_strategy':   result.sttStrategy,
+      'dtw_distance':   result.dtwDistance,
+      'dtw_verdict':    result.dtwVerdict,
+      // What the recognizer actually heard, for "Last Session Review" — null
+      // whenever no transcript was available (NO_SPEECH, Sinhala/Gemini path).
+      'recognized_text': result.rawTranscript,
     });
 
     // Phonological substitution analysis — only meaningful for a genuine
     // mismatch, and only when the scorer actually heard something.
     if (result.verdict == 'WRONG' || result.verdict == 'ALMOST') {
-      final subs = PhonemeSubstitutionAnalyzer.extract(
+      final subs = await PhonemeSubstitutionAnalyzer.extract(
         expectedPhonemes: _currentWord.phonemes,
         rawTranscript:    result.rawTranscript,
         language:         lang,
+        expectedWord:     _currentWord.word,
       );
       if (subs.isNotEmpty) {
         _allSubstitutions.add((word: _currentWord.word, language: lang, substitutions: subs));
+      }
+    }
+
+    // Word Confusion Patterns — a full valid-word swap, checked
+    // regardless of verdict (an accepted phonetic-variant match, e.g.
+    // "pin" for "pen", never qualifies — see _detectWordConfusion).
+    // English-only: the "real word" sources (curriculum list +
+    // HybridPronunciationScorer.knownDistinctRealWords) are both English.
+    if (lang == 'en') {
+      final confusedWord = _detectWordConfusion(
+        recognized: result.rawTranscript,
+        expected: _currentWord.word,
+      );
+      debugPrint('[WordConfusion] expected="${_currentWord.word}" '
+          'recognized="${result.rawTranscript}" → ${confusedWord ?? '(no match — not a real-word confusion)'}');
+      if (confusedWord != null) {
+        _allWordConfusions.add((expectedWord: _currentWord.word, confusedWord: confusedWord, language: lang));
       }
     }
 
@@ -397,6 +505,19 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
       }
       debugPrint('[PEPA] saved ${_allSubstitutions.length} substitution-bearing '
           'word attempts for sessionId=$sessionId');
+
+      // Word Confusion Patterns — one write per qualifying attempt.
+      for (final entry in _allWordConfusions) {
+        await SessionLogger.saveWordConfusion(
+          sessionId:    sessionId,
+          profileName:  AppState.name,
+          expectedWord: entry.expectedWord,
+          confusedWord: entry.confusedWord,
+          language:     entry.language,
+        );
+      }
+      debugPrint('[WordConfusion] saved ${_allWordConfusions.length} word-confusion '
+          'attempts for sessionId=$sessionId');
 
       // Storage-cleanup policy for English attempt audio — keeps only the
       // last 5 sessions' worth of WRONG-attempt WAVs, deleting older ones.

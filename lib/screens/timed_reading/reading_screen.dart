@@ -483,42 +483,34 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
 
     return Scaffold(
       backgroundColor: AppColors.pageBg,
+      // Flat brand-color AppBar, matching Pronunciation session screen's
+      // header convention (pronunciation_session_screen.dart) instead of
+      // the plain unstyled Row this screen used before. The sentence
+      // counter that used to be a separate white pill is now the AppBar
+      // title, same placement Pronunciation uses for its counter.
+      appBar: AppBar(
+        backgroundColor: AppColors.timedReading,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        title: Text(
+          isSinhala
+              ? 'වාක්‍යය ${_unitIndex + 1} / ${_sentences.length}'
+              : 'Sentence ${_unitIndex + 1} / ${_sentences.length}',
+          style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+        ),
+        actions: [
+          IconButton(
+            tooltip: isSinhala ? 'විරාමය' : 'Pause',
+            icon: Icon(Icons.settings_rounded, color: _paused ? Colors.white38 : Colors.white),
+            onPressed: _paused ? null : _onSettingsTap,
+          ),
+        ],
+      ),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(20),
           child: Column(
             children: [
-              // ── Top bar ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back_rounded, color: AppColors.textPrimary),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      boxShadow: const [
-                        BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3)),
-                      ],
-                    ),
-                    child: Text(
-                      isSinhala
-                          ? 'වාක්‍යය ${_unitIndex + 1} / ${_sentences.length}'
-                          : 'Sentence ${_unitIndex + 1} / ${_sentences.length}',
-                      style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: isSinhala ? 'විරාමය' : 'Pause',
-                    icon: Icon(Icons.settings_rounded, color: _paused ? AppColors.textHint : AppColors.textPrimary),
-                    onPressed: _paused ? null : _onSettingsTap,
-                  ),
-                ],
-              ),
               if (!_speechFlowChecked) ...[
                 const SizedBox(height: 8),
                 const LinearProgressIndicator(minHeight: 2, color: AppColors.timedReading),

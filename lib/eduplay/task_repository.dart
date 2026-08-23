@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/services.dart' show rootBundle;
+import 'eduplay_constants.dart';
+import 'eduplay_database.dart';
 
 /// Loads and queries assets/eduplay/eduplay_tasks.json — 875 tasks, ~1.2 MB,
 /// loaded once at app start and held in memory for the rest of the run.
@@ -19,16 +21,18 @@ class TaskRepository {
   }
 
   /// Tasks for a given activity, grade, language, level — only ones with
-  /// real audio (audio_available == true), shuffled with a per-child,
-  /// per-day seed so the same child sees variety session-to-session but
-  /// the same set within one day (stable across a single sitting).
-  List<Map<String, dynamic>> getTasksFor({
+  /// real audio (audio_available == true), shuffled with a seed based on
+  /// how many times this child has attempted this exact activity+level
+  /// before (not the calendar day), so a fresh kSessionLength-sized subset
+  /// is drawn every session rather than just once per day. Deterministic
+  /// per attempt count (testable/reproducible), not pure Random().
+  Future<List<Map<String, dynamic>>> getTasksFor({
     required String activityType,
     required String grade,
     required String language,
     required String level,
     required String childId,
-  }) {
+  }) async {
     final matches = _tasks
         .where((t) =>
             t['activity_type'] == activityType &&
@@ -38,9 +42,15 @@ class TaskRepository {
             t['audio_available'] == true)
         .toList();
 
-    final seed = childId.hashCode ^ DateTime.now().day;
+    final attemptCount = await EduPlayDatabase.countSessionsFor(
+      childId: childId,
+      activityType: activityType,
+      level: level,
+    );
+
+    final seed = childId.hashCode ^ activityType.hashCode ^ level.hashCode ^ attemptCount;
     matches.shuffle(Random(seed));
-    return matches;
+    return matches.take(kSessionLength).toList();
   }
 
   /// Single task by id.

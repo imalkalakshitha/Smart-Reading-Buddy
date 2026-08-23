@@ -117,7 +117,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (i == 1) {
             Navigator.pushNamed(context, AppRouter.pronunciation);
           } else if (i == 2) {
-            Navigator.pushNamed(context, AppRouter.eduplay);
+            Navigator.pushNamed(context, AppRouter.eduplayDashboard, arguments: AppState.name);
           } else if (i == 3) {
             Navigator.pushNamed(context, AppRouter.timedReading);
           } else if (i == 4) {
@@ -196,7 +196,7 @@ class _HomeContent extends StatelessWidget {
               ),
               _ActivityCard(
                 icon: '🎮',
-                title: 'EduPlay',
+                title: AppText.eduplay,
                 description: 'Fun lessons & activities!',
                 gradientColors: const [Color(0xFF7B61FF), Color(0xFF5B41DF)],
                 delay: 380,
@@ -1002,7 +1002,7 @@ class _BottomNav extends StatelessWidget {
     final items = [
       ('🏠', AppText.home),
       ('🎤', AppText.speak),
-      ('🎮', 'EduPlay'),
+      ('🎮', AppText.eduplay),
       ('📖', AppText.reading),
       ('✏️', AppText.writing),
     ];

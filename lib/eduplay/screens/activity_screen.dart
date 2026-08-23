@@ -1,35 +1,34 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../services/ble_command_service.dart';
 import '../audio_service.dart';
 import '../eduplay_constants.dart';
 import '../eduplay_engine_holder.dart';
+import '../eduplay_si_text.dart';
 import '../feature_builder.dart';
 import '../task_repository.dart';
 import 'session_result_screen.dart';
 
-// ── Palette — matches Pronunciation/Home screen exactly (see spec) ──────
-const _kPrimary = Color(0xFF2ECC71);
+// ── Palette ──────────────────────────────────────────────────────────────
+// Per-lesson accent/tint come from kLessonColors/kLessonBgTints
+// (eduplay_constants.dart) — everything else below is lesson-agnostic.
 const _kBg = Color(0xFFFAFAF7);
 const _kTextPrimary = Color(0xFF1A1A1A);
 const _kTextSecondary = Color(0xFF6B7280);
 const _kBorder = Color(0xFFE5E7EB);
 const _kDisabledBg = Color(0xFFE5E7EB);
 const _kDisabledText = Color(0xFF9CA3AF);
-// Feedback overlay — wrong state uses amber, never red, per spec.
-const _kCorrectIcon = Color(0xFF2ECC71);
-const _kCorrectBg = Color(0xFFF0FDF4);
+// Wrong-answer feedback is always amber, never red and never the lesson's
+// own accent color — accessibility rule, do not change.
 const _kWrongIcon = Color(0xFFF59E0B);
 const _kWrongBg = Color(0xFFFFFBEB);
-// Hint card / drop-slot / tile colours.
+// Hint card — informational, not lesson-branded, always amber.
 const _kHintBg = Color(0xFFFFF7ED);
 const _kHintBorder = Color(0xFFF59E0B);
 const _kHintText = Color(0xFF92400E);
-const _kSlotFilledBg = Color(0xFFE8F8F0);
-const _kSlotEmptyText = Color(0xFF9CA3AF);
 const _kTileBorder = Color(0xFFE5E7EB);
-const _kTileDraggingBg = Color(0xFFF0FDF4);
-const _kDropTargetHover = Color(0xFFD1FAE5);
+const _kSlotEmptyText = Color(0xFF9CA3AF);
 
 /// Route: '/eduplay/activity'. Args: {childId, activityType, level, grade,
 /// language}. Handles all 5 activity types by switching on activityType.
@@ -54,7 +53,8 @@ class ActivityScreen extends StatefulWidget {
 }
 
 class _ActivityScreenState extends State<ActivityScreen> {
-  late List<Map<String, dynamic>> _tasks;
+  List<Map<String, dynamic>> _tasks = [];
+  bool _loadingTasks = true;
   int _currentIndex = 0;
   int _attemptCountThisTask = 0;
 
@@ -72,31 +72,50 @@ class _ActivityScreenState extends State<ActivityScreen> {
   List<String> _bank = [];
 
   bool _showFeedback = false;
-  bool _isCorrect = false;
   final Set<int> _autoPlayed = {};
+  bool _audioPlayedThisTask = false;
+  Timer? _autoAdvanceTimer;
 
   // Pre-submission hint — one per task, from the static word-hint maps
   // below (not the old per-activity-type freeform hint text).
   String? _hintText;
   bool _hintUsed = false;
 
+  bool get _isSentenceActivity => widget.activityType == 'sentence_drag_drop' || widget.activityType == 'sentence_quiz';
+  bool get _isSinhala => widget.language == 'Sinhala';
+
+  Color get _accent => kLessonColors[widget.activityType] ?? const Color(0xFF2ECC71);
+  Color get _tint => kLessonBgTints[widget.activityType] ?? const Color(0xFFE8F8F0);
+
   @override
   void initState() {
     super.initState();
     _sessionStartTime = DateTime.now();
-    _tasks = TaskRepository.instance.getTasksFor(
+    _loadTasks();
+  }
+
+  Future<void> _loadTasks() async {
+    final tasks = await TaskRepository.instance.getTasksFor(
       activityType: widget.activityType,
       grade: widget.grade,
       language: widget.language,
       level: widget.level,
       childId: widget.childId,
     );
-    _resetTaskState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _autoPlayAudio());
+    if (!mounted) return;
+    setState(() {
+      _tasks = tasks;
+      _loadingTasks = false;
+      if (_tasks.isNotEmpty) _resetTaskState();
+    });
+    if (_tasks.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _autoPlayAudio());
+    }
   }
 
   @override
   void dispose() {
+    _autoAdvanceTimer?.cancel();
     EduPlayAudioService.instance.stop();
     super.dispose();
   }
@@ -107,6 +126,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     _attemptCountThisTask = 0;
     _selectedAnswer = null;
     _showFeedback = false;
+    _audioPlayedThisTask = false;
     // Reset on each NEW task only — not on retry (one hint per task,
     // even across retries of the same task).
     _hintText = null;
@@ -133,13 +153,17 @@ class _ActivityScreenState extends State<ActivityScreen> {
     if (_autoPlayed.contains(_currentIndex)) return;
     _autoPlayed.add(_currentIndex);
     final path = _task['audio_available'] == true ? _task['audio_path'] as String? : null;
+    if (path != null) setState(() => _audioPlayedThisTask = true);
     EduPlayAudioService.instance.playTask(path);
   }
 
   void _replayAudio() {
     final path = _task['audio_available'] == true ? _task['audio_path'] as String? : null;
     if (path == null) return;
-    setState(() => _audioReplayCount++);
+    setState(() {
+      _audioReplayCount++;
+      _audioPlayedThisTask = true;
+    });
     EduPlayAudioService.instance.playTask(path);
   }
 
@@ -159,8 +183,22 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return _siHints[text];
   }
 
+  String? _getWordEmoji(Map<String, dynamic> task) {
+    final lang = task['language'] as String? ?? 'English';
+    final text = (task['target_text'] as String? ?? '').toLowerCase().trim();
+    return lang == 'English' ? _enWordEmoji[text] : _siWordEmoji[text];
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (_loadingTasks) {
+      return Scaffold(
+        backgroundColor: _kBg,
+        appBar: AppBar(backgroundColor: Colors.white, elevation: 0, iconTheme: const IconThemeData(color: _kTextPrimary)),
+        body: Center(child: CircularProgressIndicator(color: _accent)),
+      );
+    }
+
     if (_tasks.isEmpty) {
       return Scaffold(
         backgroundColor: _kBg,
@@ -172,59 +210,123 @@ class _ActivityScreenState extends State<ActivityScreen> {
       );
     }
 
-    final audioAvailable = _task['audio_available'] == true;
+    final accent = _accent;
+    final percent = (_currentIndex / _tasks.length * 100).round();
+    final isSinhala = _isSinhala;
 
     return Scaffold(
       backgroundColor: _kBg,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: accent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: _kTextPrimary),
+        iconTheme: const IconThemeData(color: Colors.white),
         title: Text(
-          kActivityDisplayNames[widget.activityType] ?? widget.activityType,
-          style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary),
+          isSinhala
+              ? (EduPlaySiText.activityNames[widget.activityType] ?? widget.activityType)
+              : (kActivityDisplayNames[widget.activityType] ?? widget.activityType),
+          style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: Colors.white),
         ),
         actions: [
           Padding(
-            padding: const EdgeInsets.only(right: 4),
+            padding: const EdgeInsets.only(right: 16),
             child: Center(
               child: Text('${_currentIndex + 1} / ${_tasks.length}',
-                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kTextSecondary)),
-            ),
-          ),
-          Tooltip(
-            message: audioAvailable ? 'Play audio' : 'Audio not available for this item',
-            child: IconButton(
-              iconSize: 28,
-              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              icon: Icon(Icons.volume_up_rounded, color: audioAvailable ? _kPrimary : const Color(0xFFCCCCCC)),
-              onPressed: audioAvailable ? _replayAudio : null,
+                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: Colors.white)),
             ),
           ),
         ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(6),
-          child: LinearProgressIndicator(
-            value: _currentIndex / _tasks.length,
-            minHeight: 6,
-            backgroundColor: _kBorder,
-            color: _kPrimary,
-          ),
-        ),
       ),
       body: SafeArea(
         child: Stack(
           children: [
             Column(
               children: [
+                _buildProgressSection(accent, percent),
+                _buildStatusBar(),
                 Expanded(child: _buildActivityBody()),
                 if (_hintText != null) _buildHintCard(),
-                _buildActionRow(),
+                _buildActionRow(accent),
               ],
             ),
             if (_showFeedback) _buildFeedbackOverlay(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildProgressSection(Color accent, int percent) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                  _isSinhala
+                      ? (_isSentenceActivity
+                          ? EduPlaySiText.sentenceNOfTotal(_currentIndex + 1, _tasks.length)
+                          : EduPlaySiText.wordNOfTotal(_currentIndex + 1, _tasks.length))
+                      : 'Word ${_currentIndex + 1} / ${_tasks.length}',
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kTextSecondary)),
+              Text('$percent%',
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: accent)),
+            ],
+          ),
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _currentIndex / _tasks.length,
+              minHeight: 8,
+              backgroundColor: _kBorder,
+              color: accent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const Map<String, String> _buildPrompts = {
+    'letter_drag_drop': 'Now build the word!',
+    'sentence_drag_drop': 'Now build the sentence!',
+    'word_recognition': 'Choose the right word!',
+    'fill_blanks_word': 'Choose the missing part!',
+    'sentence_quiz': 'Choose the right answer!',
+  };
+
+  Map<String, String> get _buildPromptsSi => {
+        'letter_drag_drop': EduPlaySiText.nowBuildWord,
+        'sentence_drag_drop': EduPlaySiText.nowBuildSentence,
+        'word_recognition': EduPlaySiText.chooseRightWord,
+        'fill_blanks_word': EduPlaySiText.chooseMissingPart,
+        'sentence_quiz': EduPlaySiText.chooseRightAnswer,
+      };
+
+  Widget _buildStatusBar() {
+    final isSinhala = _isSinhala;
+    final text = _audioPlayedThisTask
+        ? ((isSinhala ? _buildPromptsSi[widget.activityType] : _buildPrompts[widget.activityType]) ??
+            (isSinhala ? EduPlaySiText.chooseRightAnswer : 'Now answer!'))
+        : (isSinhala
+            ? (_isSentenceActivity ? EduPlaySiText.tapToHearSentence : EduPlaySiText.tapToHearWord)
+            : (_isSentenceActivity ? 'Tap 🔊 to hear the sentence!' : 'Tap 🔊 to hear the word!'));
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(color: _tint, borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          const Text('🦉', style: TextStyle(fontSize: 20)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text,
+                style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.3, color: _kTextPrimary)),
+          ),
+        ],
       ),
     );
   }
@@ -265,15 +367,102 @@ class _ActivityScreenState extends State<ActivityScreen> {
     }
   }
 
+  Widget _buildImageCard() {
+    final emoji = _getWordEmoji(_task);
+    final targetText = (_task['target_text'] as String? ?? '');
+    return Center(
+      child: Container(
+        width: 140,
+        height: 140,
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: _accent, width: 2),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Center(
+          child: emoji != null
+              ? Text(emoji, style: const TextStyle(fontSize: 64))
+              : Text(
+                  targetText.isNotEmpty ? targetText.substring(0, 1).toUpperCase() : '?',
+                  style: GoogleFonts.nunito(fontSize: 80, fontWeight: FontWeight.w800, color: _accent),
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSpeakerControls() {
+    final audioAvailable = _task['audio_available'] == true;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Tooltip(
+            message: audioAvailable ? 'Play audio' : 'Audio not available for this item',
+            child: SizedBox(
+              width: 56,
+              height: 56,
+              child: ElevatedButton(
+                onPressed: audioAvailable ? _replayAudio : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _accent,
+                  disabledBackgroundColor: _kDisabledBg,
+                  shape: const CircleBorder(),
+                  padding: EdgeInsets.zero,
+                  elevation: 0,
+                ),
+                child: Icon(Icons.volume_up_rounded, color: audioAvailable ? Colors.white : _kDisabledText, size: 26),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          OutlinedButton.icon(
+            onPressed: audioAvailable ? _replayAudio : null,
+            icon: const Icon(Icons.replay, size: 18),
+            label: Text('Listen Again', style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _accent,
+              side: BorderSide(color: _accent),
+              disabledForegroundColor: _kDisabledText,
+              minimumSize: const Size(140, 44),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInstructionBanner(String text) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: _tint, borderRadius: BorderRadius.circular(12)),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _accent)),
+    );
+  }
+
   Widget _buildDragDrop({required bool isLetters}) {
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          child: Text(_task['prompt_text'] as String? ?? 'Put them in order',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kTextSecondary)),
-        ),
+        if (isLetters) ...[
+          const SizedBox(height: 8),
+          _buildImageCard(),
+        ] else
+          const SizedBox(height: 12),
+        // Speaker controls for BOTH types — sentence_drag_drop only had
+        // its one auto-play on task load before, with no way to replay,
+        // unlike every other activity type.
+        _buildSpeakerControls(),
+        _buildInstructionBanner(isLetters
+            ? (_isSinhala ? EduPlaySiText.dragLettersInstruction : 'Drag the letters to build the correct word!')
+            // prompt_text comes straight from the task's own JSON row, which
+            // already carries Sinhala text for Sinhala-language tasks.
+            : (_task['prompt_text'] as String? ?? 'Put the words in the right order!')),
         Expanded(
           flex: 2,
           child: Center(child: _buildDropSlots(isLetters: isLetters)),
@@ -307,22 +496,29 @@ class _ActivityScreenState extends State<ActivityScreen> {
             builder: (context, candidate, rejected) {
               final filled = _droppedItems[i] != null;
               final hovering = candidate.isNotEmpty;
+              // No `alignment:` here on purpose — Container with an
+              // alignment set but no explicit width/height expands to
+              // fill all available space instead of shrink-wrapping its
+              // child (a Flutter Container gotcha); Center below achieves
+              // the same visual centering without that side effect.
               return Container(
                 width: isLetters ? 52 : null,
                 constraints: isLetters ? null : const BoxConstraints(minWidth: 70),
                 height: 52,
                 padding: const EdgeInsets.symmetric(horizontal: 10),
-                alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: hovering ? _kDropTargetHover : (filled ? _kSlotFilledBg : Colors.white),
-                  border: Border.all(color: _kPrimary, width: 2),
+                  color: hovering ? _tint : (filled ? _tint : Colors.white),
+                  border: Border.all(color: _accent, width: 2),
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: Text(
-                  _droppedItems[i] ?? '—',
-                  style: filled
-                      ? GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kPrimary)
-                      : GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w400, letterSpacing: 0.3, color: _kSlotEmptyText),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text(
+                    _droppedItems[i] ?? '—',
+                    style: filled
+                        ? GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _accent)
+                        : GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w400, letterSpacing: 0.3, color: _kSlotEmptyText),
+                  ),
                 ),
               );
             },
@@ -340,18 +536,23 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
   }
 
+  // No `alignment:` on this Container — see the matching note in
+  // _buildDropSlots(): alignment + no explicit width/height makes
+  // Container expand to fill the Wrap row instead of shrink-wrapping,
+  // which was the actual root cause of the full-width tile bug.
   Widget _tile(String text, {bool dragging = false}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
       constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: dragging ? _kTileDraggingBg : Colors.white,
+        color: dragging ? _tint : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _kTileBorder, width: 1.5),
         boxShadow: dragging ? const [BoxShadow(color: Color(0x33000000), blurRadius: 8)] : null,
       ),
-      child: Text(text, style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary)),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary)),
     );
   }
 
@@ -374,13 +575,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
   Widget _buildWordRecognition() {
     final options = _stringList(_task['options']);
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
-          Text(_task['prompt_text'] as String? ?? '',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary)),
-          const SizedBox(height: 24),
+          const SizedBox(height: 4),
+          _buildImageCard(),
+          _buildSpeakerControls(),
+          _buildInstructionBanner(_task['prompt_text'] as String? ?? 'Listen carefully and choose the right word.'),
           GridView.count(
             crossAxisCount: 2,
             shrinkWrap: true,
@@ -390,6 +591,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             childAspectRatio: 1.8,
             children: [for (final option in options) _optionButton(option)],
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -400,9 +602,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
     final blankText = _task['blank_text'] as String? ?? '';
     final display = _selectedAnswer == null ? blankText : blankText.replaceFirst('_', _selectedAnswer!);
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
+          const SizedBox(height: 4),
+          _buildImageCard(),
+          _buildSpeakerControls(),
+          _buildInstructionBanner('Find the missing letter or word.'),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(20),
@@ -422,6 +628,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             runSpacing: 12,
             children: [for (final option in options) _optionButton(option)],
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -430,14 +637,17 @@ class _ActivityScreenState extends State<ActivityScreen> {
   Widget _buildSentenceQuiz() {
     final options = _stringList(_task['options']);
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Column(
         children: [
+          const SizedBox(height: 12),
+          _buildSpeakerControls(),
+          _buildInstructionBanner(_task['prompt_text'] as String? ?? 'Listen to the sentence and answer the question.'),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: _kPrimary.withValues(alpha: 0.08),
+              color: _tint,
               borderRadius: BorderRadius.circular(18),
             ),
             child: Text(_task['target_text'] as String? ?? '',
@@ -455,6 +665,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             runSpacing: 12,
             children: [for (final option in options) _optionButton(option)],
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );
@@ -465,7 +676,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
       child: Material(
-        color: selected ? _kPrimary : Colors.white,
+        color: selected ? _accent : Colors.white,
         borderRadius: BorderRadius.circular(16),
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
@@ -474,7 +685,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: selected ? _kPrimary : const Color(0xFFE0E0E0), width: 2),
+              border: Border.all(color: selected ? _accent : const Color(0xFFE0E0E0), width: 2),
             ),
             child: Text(
               option,
@@ -516,7 +727,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
     );
   }
 
-  Widget _buildActionRow() {
+  Widget _buildActionRow(Color accent) {
     final isDragDrop = widget.activityType == 'letter_drag_drop' || widget.activityType == 'sentence_drag_drop';
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -525,7 +736,10 @@ class _ActivityScreenState extends State<ActivityScreen> {
           OutlinedButton.icon(
             onPressed: _hintUsed ? null : _onHintTap,
             icon: const Icon(Icons.lightbulb_outline, size: 18),
-            label: Text(_hintUsed ? 'Hint used' : 'Hint',
+            label: Text(
+                _hintUsed
+                    ? (_isSinhala ? EduPlaySiText.hintUsed : 'Hint used')
+                    : (_isSinhala ? EduPlaySiText.hint : 'Hint'),
                 style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
             style: OutlinedButton.styleFrom(
               foregroundColor: _kHintBorder,
@@ -545,7 +759,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 minimumSize: const Size(80, 52),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),
-              child: Text('Clear', style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              child: Text(_isSinhala ? EduPlaySiText.clear : 'Clear',
+                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
             ),
             const SizedBox(width: 8),
           ],
@@ -553,7 +768,7 @@ class _ActivityScreenState extends State<ActivityScreen> {
             child: ElevatedButton(
               onPressed: _canSubmit ? _onSubmit : null,
               style: ElevatedButton.styleFrom(
-                backgroundColor: _kPrimary,
+                backgroundColor: accent,
                 foregroundColor: Colors.white,
                 disabledBackgroundColor: _kDisabledBg,
                 disabledForegroundColor: _kDisabledText,
@@ -561,7 +776,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 minimumSize: const Size(double.infinity, 52),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),
-              child: Text('Submit', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+              child: Text(_isSinhala ? EduPlaySiText.submit : 'Submit',
+                  style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
             ),
           ),
         ],
@@ -604,22 +820,24 @@ class _ActivityScreenState extends State<ActivityScreen> {
         mistakeType = 'none';
     }
 
-    if (correct) {
-      _correctCount++;
-    } else {
-      _mistakeCount++;
-      _sessionMistakeType = mistakeType;
-    }
-
     final task = _task;
     BleCommandService.instance.send(
       correct ? (task['buddy_positive'] as String? ?? '') : (task['buddy_corrective'] as String? ?? ''),
     );
 
-    setState(() {
-      _isCorrect = correct;
-      _showFeedback = true;
-    });
+    if (correct) {
+      final stars = _attemptCountThisTask <= 1 ? 3 : (_attemptCountThisTask == 2 ? 2 : 1);
+      final isLastTask = _currentIndex == _tasks.length - 1;
+      final perfectSoFar = _mistakeCount == 0;
+      setState(() => _correctCount++);
+      _showCelebration(stars: stars, showBonusBadge: isLastTask && perfectSoFar);
+    } else {
+      _mistakeCount++;
+      _sessionMistakeType = mistakeType;
+      setState(() {
+        _showFeedback = true;
+      });
+    }
   }
 
   bool _listEquals(List<String> a, List<String> b) {
@@ -630,7 +848,180 @@ class _ActivityScreenState extends State<ActivityScreen> {
     return true;
   }
 
-  // ── Feedback overlay ─────────────────────────────────────────────────
+  // ── Correct-answer celebration (replaces plain feedback for correct
+  // submits only — wrong submits keep the amber "Try again!" overlay
+  // below, unchanged) ──────────────────────────────────────────────────
+
+  void _showCelebration({required int stars, required bool showBonusBadge}) {
+    final task = _task;
+    final accent = _accent;
+    final tint = _tint;
+    final emoji = _getWordEmoji(task);
+    final targetText = task['target_text'] as String? ?? '';
+    final isSentence = _isSentenceActivity;
+
+    _autoAdvanceTimer?.cancel(); // safety: clear any stale timer first
+
+    showModalBottomSheet(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) {
+        _autoAdvanceTimer = Timer(const Duration(seconds: 5), () {
+          if (Navigator.canPop(sheetContext)) Navigator.pop(sheetContext);
+          _advance();
+        });
+
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            _autoAdvanceTimer?.cancel();
+            if (Navigator.canPop(sheetContext)) Navigator.pop(sheetContext);
+            _advance();
+          },
+          child: Container(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(sheetContext).size.height * 0.9),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(20)),
+                child: Text(
+                  _isSinhala
+                      ? (isSentence
+                          ? EduPlaySiText.sentenceNCompleted(_currentIndex + 1)
+                          : EduPlaySiText.wordNCompleted(_currentIndex + 1))
+                      : (isSentence ? 'Sentence ${_currentIndex + 1} Completed!' : 'Word ${_currentIndex + 1} Completed!'),
+                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: accent),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('${_currentIndex + 1} / ${_tasks.length}',
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kTextSecondary)),
+              const SizedBox(height: 12),
+              Text(_isSinhala ? EduPlaySiText.greatJob : 'Great Job! 🎉',
+                  style: GoogleFonts.nunito(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: _kTextPrimary)),
+              const SizedBox(height: 16),
+              if (!isSentence)
+                Container(
+                  width: 100,
+                  height: 100,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(20)),
+                  child: Center(
+                    child: emoji != null
+                        ? Text(emoji, style: const TextStyle(fontSize: 48))
+                        : Text(targetText.isNotEmpty ? targetText.substring(0, 1).toUpperCase() : '?',
+                            style: GoogleFonts.nunito(fontSize: 56, fontWeight: FontWeight.w800, color: accent)),
+                  ),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: tint,
+                  border: Border.all(color: accent),
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Text(targetText,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: accent)),
+              ),
+              if ((task['buddy_positive'] as String?)?.isNotEmpty == true)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 14),
+                  decoration: BoxDecoration(color: const Color(0xFFF0F4FF), borderRadius: BorderRadius.circular(14)),
+                  child: Row(
+                    children: [
+                      const Text('🦉', style: TextStyle(fontSize: 22)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(task['buddy_positive'] as String,
+                            style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kTextPrimary)),
+                      ),
+                    ],
+                  ),
+                ),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(20)),
+                    child: Text(_isSinhala ? EduPlaySiText.starsEarned(stars) : '⭐ $stars stars earned',
+                        style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: const Color(0xFFD97706))),
+                  ),
+                  if (showBonusBadge)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(color: const Color(0xFFFFF0DB), borderRadius: BorderRadius.circular(20)),
+                      child: Text('🏅 ${kActivityDisplayNames[widget.activityType] ?? 'Activity'} Star!',
+                          style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: const Color(0xFFC2410C))),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () {
+                    _autoAdvanceTimer?.cancel();
+                    Navigator.of(sheetContext).pop();
+                    _advance();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accent,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                  ),
+                  child: Text(
+                      _isSinhala
+                          ? (isSentence ? EduPlaySiText.next : EduPlaySiText.nextWord)
+                          : (isSentence ? '→ Next' : '→ Next Word'),
+                      style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () {
+                  _autoAdvanceTimer?.cancel();
+                  Navigator.of(sheetContext).pop();
+                  _endSessionEarly();
+                },
+                child: Text(_isSinhala ? EduPlaySiText.backToJourney : '← Back to Journey',
+                    style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w600, letterSpacing: 0.3, color: _kTextSecondary)),
+              ),
+            ],
+              ),
+              ),
+            ),
+          ),
+          ),
+        );
+      },
+    );
+  }
+
+  // ── Feedback overlay (wrong answers only) ────────────────────────────
 
   Widget _buildFeedbackOverlay() {
     final task = _task;
@@ -653,85 +1044,56 @@ class _ActivityScreenState extends State<ActivityScreen> {
                 Container(
                   width: 72,
                   height: 72,
-                  decoration: BoxDecoration(
-                    color: _isCorrect ? _kCorrectBg : _kWrongBg,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    _isCorrect ? Icons.check_circle_rounded : Icons.warning_rounded,
-                    color: _isCorrect ? _kCorrectIcon : _kWrongIcon,
-                    size: 40,
-                  ),
+                  decoration: const BoxDecoration(color: _kWrongBg, shape: BoxShape.circle),
+                  child: const Icon(Icons.warning_rounded, color: _kWrongIcon, size: 40),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  _isCorrect ? 'Well done!' : 'Try again!',
+                  _isSinhala ? EduPlaySiText.tryAgain : 'Try again!',
                   style: GoogleFonts.nunito(fontSize: 24, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  (_isCorrect ? task['buddy_positive'] : task['buddy_corrective']) as String? ?? '',
+                  (task['buddy_corrective'] as String?) ?? '',
                   textAlign: TextAlign.center,
                   style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w400, letterSpacing: 0.3, color: _kTextPrimary),
                 ),
-                if (_isCorrect) ...[
-                  const SizedBox(height: 10),
-                  Text('+10 XP',
-                      style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kPrimary)),
-                ],
                 const SizedBox(height: 20),
-                if (_isCorrect)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: _advance,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _kPrimary,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SizedBox(
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _retry,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _kWrongIcon,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                          ),
+                          child: Text('Try Again', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+                        ),
                       ),
-                      child: Text('Next', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
                     ),
-                  )
-                else ...[
-                  Row(
-                    children: [
+                    if (canSkip) ...[
+                      const SizedBox(width: 12),
                       Expanded(
                         child: SizedBox(
                           height: 52,
-                          child: ElevatedButton(
-                            onPressed: _retry,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _kWrongIcon,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
+                          child: OutlinedButton(
+                            onPressed: _advance,
+                            style: OutlinedButton.styleFrom(
                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              side: const BorderSide(color: _kTextSecondary),
                             ),
-                            child: Text('Try Again', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
+                            child: Text('Skip', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
                           ),
                         ),
                       ),
-                      if (canSkip) ...[
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: SizedBox(
-                            height: 52,
-                            child: OutlinedButton(
-                              onPressed: _advance,
-                              style: OutlinedButton.styleFrom(
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                side: const BorderSide(color: _kTextSecondary),
-                              ),
-                              child: Text('Skip', style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3)),
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
-                ],
+                  ],
+                ),
               ],
             ),
           ),
@@ -797,6 +1159,127 @@ class _ActivityScreenState extends State<ActivityScreen> {
       MaterialPageRoute(builder: (_) => SessionResultScreen(result: result)),
     );
   }
+
+  // "Back to Journey" — ends the session after only some tasks were
+  // completed. onSessionComplete(result, task) just consumes whatever
+  // aggregate result it's given (see eduplay_engine.dart) — it has no
+  // built-in assumption that all _tasks.length tasks were finished, so a
+  // partial result computed from what was actually done (_correctCount /
+  // tasks-attempted-so-far) is logged the same way a full session would
+  // be. No SessionResultScreen is shown for an early exit — straight back
+  // to the dashboard, per spec.
+  void _endSessionEarly() {
+    final tasksAttempted = _currentIndex + 1; // current task was just answered correctly
+    final elapsedSec = DateTime.now().difference(_sessionStartTime).inSeconds.toDouble();
+    final accuracyPct = tasksAttempted == 0 ? 0.0 : (_correctCount / tasksAttempted) * 100.0;
+
+    final result = EduPlaySessionResult(
+      sessionId: DateTime.now().microsecondsSinceEpoch.toString(),
+      childId: widget.childId,
+      taskId: _task['task_id'] as String,
+      activityType: widget.activityType,
+      language: widget.language,
+      grade: widget.grade,
+      level: widget.level,
+      accuracyPct: accuracyPct,
+      timeSpentSec: elapsedSec,
+      attemptCount: _totalAttempts,
+      hintsUsed: _hintsUsed,
+      audioReplayCount: _audioReplayCount,
+      mistakeCount: _mistakeCount,
+      mistakeType: _sessionMistakeType,
+      isCorrect: _mistakeCount == 0,
+    );
+
+    EduPlayEngineHolder.instance.onSessionComplete(result, _task);
+
+    // Pop ActivityScreen, then the LevelSelect screen beneath it — both
+    // were pushed via Navigator.push from EduPlayChildDashboard, so two
+    // pops lands back there (see activity_level_select.dart / dashboard).
+    Navigator.of(context).pop();
+    Navigator.of(context).pop();
+  }
+
+  static const Map<String, String> _enWordEmoji = {
+    'animal': '🐾', 'apple': '🍎', 'beach': '🏖️', 'beautiful': '🌸',
+    'bread': '🍞', 'bright': '☀️', 'brother': '👦', 'butterfly': '🦋',
+    'cat': '🐱', 'chair': '🪑', 'classroom': '🏫', 'computer': '💻',
+    'daily': '📅', 'dog': '🐶', 'eat': '🍴', 'evening': '🌆',
+    'everyday': '🔁', 'fish': '🐟', 'green': '🟢', 'happy': '😊',
+    'healthy': '💪', 'homework': '📝', 'horse': '🐴', 'ice': '🧊',
+    'jump': '🤸', 'kite': '🪁', 'large': '🐘', 'light': '💡',
+    'market': '🛒', 'morning': '🌅', 'mother': '👩', 'open': '🔓',
+    'orange': '🍊', 'paper': '📄', 'pen': '🖊️', 'pencil': '✏️',
+    'picture': '🖼️', 'pig': '🐷', 'plant': '🌱', 'rain': '🌧️',
+    'rainbow': '🌈', 'rings': '💍', 'river': '🏞️', 'rock': '🪨',
+    'ship': '🚢', 'story': '📖', 'student': '🎒', 'sun': '☀️',
+    'sunshine': '🌞', 'table': '🍽️', 'tasty': '😋', 'teacher': '👩‍🏫',
+    'tiger': '🐯', 'village': '🏘️', 'water': '💧', 'weather': '⛅',
+    'window': '🪟',
+  };
+
+  // SINHALA WORD IMAGES — keys copied verbatim from the already-verified
+  // _siHints map above (same source vocabulary, byte-exact, not
+  // retyped) since hand-reproducing Sinhala script proved unreliable
+  // while building this map — see report to user. Emoji chosen fresh
+  // per word.
+  static const Map<String, String> _siWordEmoji = {
+    'අත්සන': '✍️',
+    'අවධානය': '👀',
+    'අවබෝධය': '💡',
+    'ආරක්ෂාව': '🛡️',
+    'ඇස': '👁️',
+    'ඊතලය': '🏹',
+    'උදැල්ල': '⛏️',
+    'උර': '💪',
+    'එක': '1️⃣',
+    'ඔය': '🏞️',
+    'කැමැත්ත': '❤️',
+    'කියවීම': '📖',
+    'කිරිබත්': '🍚',
+    'කුරුල්ලා': '🐦',
+    'කුසලතා': '🌟',
+    'කෙසෙල්': '🍌',
+    'ගණිතය': '🔢',
+    'ගම': '🏘️',
+    'ගායනය': '🎤',
+    'ගැහැනිය': '👩',
+    'ගුරුතුමා': '👨‍🏫',
+    'චීනය': '🇨🇳',
+    'ජනතාව': '👥',
+    'තාරාවා': '🦆',
+    'තීන්ත': '🎨',
+    'තොවිලය': '🪯',
+    'නිගමනය': '✅',
+    'නියර': '🌾',
+    'නිර්මාණශීලී': '🎨',
+    'ප්‍රයත්නය': '💪',
+    'ප්‍රායෝගික': '🔧',
+    'පැන්සල්': '✏️',
+    'පිරිසිදු': '🧼',
+    'පිළිතුරු': '✅',
+    'පිළිහුඩුවා': '🦔',
+    'පූජාව': '🙏',
+    'බෑගය': '🎒',
+    'මුරුක්කු': '🍩',
+    'මුහුද': '🌊',
+    'රූපකය': '🖼️',
+    'ලස්සන': '🌸',
+    'වරලස': '💇‍♀️',
+    'වලාකුළු': '☁️',
+    'විචාරය': '🤔',
+    'විස්තරය': '📝',
+    'වේවැල': '🎋',
+    'සංකල්ප': '💭',
+    'සංවාදය': '💬',
+    'සංවිධානය': '🗂️',
+    'සටහන්': '🗒️',
+    'සම්පූර්ණණ': '✅',
+    'සිංහයා': '🦁',
+    'සිතියම': '🗺️',
+    'සීගිරිය': '🏰',
+    'සෞඛ්‍යය': '🏥',
+  };
 
   static const Map<String, String> _enHints = {
     'animal': 'A living creature that moves and breathes',

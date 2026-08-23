@@ -22,8 +22,19 @@ const Map<String, String> _kRuleTagPlain = {
 class ParentRecommendationScreen extends StatefulWidget {
   final String childId;
   final EduPlayEngine engine;
+  // Which internal tab (0 = Current Recommendation, 1 = Assignment
+  // History) is selected on open — added so EduPlayParentJourneyScreen's
+  // Picks/Assigned tabs can jump straight to the relevant one instead of
+  // always landing on tab 0. Defaults to 0, so every existing call site
+  // (unchanged) behaves exactly as before.
+  final int initialTabIndex;
 
-  const ParentRecommendationScreen({super.key, required this.childId, required this.engine});
+  const ParentRecommendationScreen({
+    super.key,
+    required this.childId,
+    required this.engine,
+    this.initialTabIndex = 0,
+  });
 
   @override
   State<ParentRecommendationScreen> createState() => _ParentRecommendationScreenState();
@@ -39,7 +50,7 @@ class _ParentRecommendationScreenState extends State<ParentRecommendationScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 2, vsync: this, initialIndex: widget.initialTabIndex);
     _load();
   }
 

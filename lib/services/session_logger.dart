@@ -15,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 11,
+      version: 16,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -165,6 +165,82 @@ class SessionLogger {
               )
             ''');
           }
+          if (oldVersion < 12) {
+            // Free Drawing Recognition module — additive only, own table,
+            // no FK into any existing table (mirrors timed_reading_* being
+            // fully separate). See free_drawing_dao.dart for the only code
+            // that reads/writes this table.
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS free_drawing_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                level_type TEXT NOT NULL,
+                language TEXT NOT NULL,
+                target_character TEXT NOT NULL,
+                target_word TEXT,
+                slot_index INTEGER,
+                top1_prediction TEXT NOT NULL,
+                top1_confidence REAL NOT NULL,
+                p_target REAL NOT NULL,
+                target_rank INTEGER NOT NULL,
+                accepted INTEGER NOT NULL,
+                attempt_number INTEGER NOT NULL
+              )
+            ''');
+          }
+          if (oldVersion < 13) {
+            // Decision Fusion (English pronunciation) — raw signals for
+            // STT/DTW agreement analysis. Additive only, nullable: every
+            // existing row (and Sinhala/energy-fallback rows going
+            // forward) simply gets NULL, since none of these apply there.
+            await db.execute('ALTER TABLE word_attempts ADD COLUMN stt_strategy TEXT');
+            await db.execute('ALTER TABLE word_attempts ADD COLUMN dtw_distance REAL');
+            await db.execute('ALTER TABLE word_attempts ADD COLUMN dtw_verdict TEXT');
+          }
+          if (oldVersion < 14) {
+            // "Word Confusion Patterns" — a full valid-word swap (e.g.
+            // "cat" said instead of "sun"), distinct from
+            // phoneme_substitutions (a sound-level mispronunciation).
+            // Separate table, same shape as phoneme_substitutions, since
+            // it's a different signal — additive only.
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS word_confusions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                session_id INTEGER NOT NULL,
+                expected_word TEXT NOT NULL,
+                confused_word TEXT NOT NULL,
+                language TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+              )
+            ''');
+          }
+          if (oldVersion < 16) {
+            // "Last Session Review" — the STT/DTW-fallback transcript
+            // (result.rawTranscript) was already being computed at scoring
+            // time but never persisted. Additive, nullable: existing rows
+            // get NULL (expected, not backfillable), and it stays NULL for
+            // any attempt where no transcript was available (NO_SPEECH,
+            // Sinhala's Gemini cloud path).
+            await db.execute('ALTER TABLE word_attempts ADD COLUMN recognized_text TEXT');
+          }
+          if (oldVersion < 15) {
+            // Per-parent "remove from Assigned Practice History view"
+            // (see getAssignedPracticeHistory) — a separate table rather
+            // than deleting/flagging the underlying `sessions` row,
+            // since that row (and its word_attempts/phoneme_attempts)
+            // is real session data that must survive a parent dismissing
+            // one history card. Additive only.
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS dismissed_practice_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                session_id INTEGER NOT NULL,
+                dismissed_at TEXT NOT NULL
+              )
+            ''');
+          }
         }
       },
     );
@@ -193,6 +269,27 @@ class SessionLogger {
         expected_phoneme TEXT NOT NULL,
         produced_phoneme TEXT NOT NULL,
         timestamp TEXT NOT NULL
+      )
+    ''');
+    // Mirrors the oldVersion < 14 branch above exactly.
+    await db.execute('''
+      CREATE TABLE word_confusions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        session_id INTEGER NOT NULL,
+        expected_word TEXT NOT NULL,
+        confused_word TEXT NOT NULL,
+        language TEXT NOT NULL,
+        timestamp TEXT NOT NULL
+      )
+    ''');
+    // Mirrors the oldVersion < 15 branch above exactly.
+    await db.execute('''
+      CREATE TABLE dismissed_practice_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        session_id INTEGER NOT NULL,
+        dismissed_at TEXT NOT NULL
       )
     ''');
     await db.execute('''
@@ -232,6 +329,10 @@ class SessionLogger {
         attempt_number INTEGER NOT NULL,
         dtw_score REAL NOT NULL,
         audio_path TEXT,
+        stt_strategy TEXT,
+        dtw_distance REAL,
+        dtw_verdict TEXT,
+        recognized_text TEXT,
         FOREIGN KEY (session_id) REFERENCES sessions(session_id)
       )
     ''');
@@ -285,6 +386,25 @@ class SessionLogger {
         sentence_text_snapshot TEXT NOT NULL,
         assigned_at TEXT NOT NULL,
         completed_at TEXT
+      )
+    ''');
+    // Mirrors the oldVersion < 12 branch above exactly.
+    await db.execute('''
+      CREATE TABLE free_drawing_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        level_type TEXT NOT NULL,
+        language TEXT NOT NULL,
+        target_character TEXT NOT NULL,
+        target_word TEXT,
+        slot_index INTEGER,
+        top1_prediction TEXT NOT NULL,
+        top1_confidence REAL NOT NULL,
+        p_target REAL NOT NULL,
+        target_rank INTEGER NOT NULL,
+        accepted INTEGER NOT NULL,
+        attempt_number INTEGER NOT NULL
       )
     ''');
   }
@@ -342,6 +462,10 @@ class SessionLogger {
         'attempt_number': a['attempt_number'],
         'dtw_score': a['dtw_score'],
         'audio_path': a['audio_path'],
+        'stt_strategy': a['stt_strategy'],
+        'dtw_distance': a['dtw_distance'],
+        'dtw_verdict': a['dtw_verdict'],
+        'recognized_text': a['recognized_text'],
       });
     }
     await batch.commit(noResult: true);
@@ -779,6 +903,63 @@ class SessionLogger {
     ''', args);
   }
 
+  // ── Word Confusion Patterns ──────────────────────────────────────────────
+  //
+  // A full valid-word swap (e.g. "cat" said instead of "sun") — distinct
+  // from phoneme_substitutions, which is a sound-level mispronunciation
+  // within the same word. See pronunciation_session_screen.dart for the
+  // detection logic (curriculum words + HybridPronunciationScorer
+  // .knownDistinctRealWords, minus fragment/truncation cases).
+
+  /// Logs one word-confusion instance. Called once per qualifying
+  /// attempt, regardless of verdict.
+  static Future<void> saveWordConfusion({
+    required int    sessionId,
+    required String profileName,
+    required String expectedWord,
+    required String confusedWord,
+    required String language,
+  }) async {
+    final db = await _database;
+    await db.insert('word_confusions', {
+      'profile_name':  profileName,
+      'session_id':    sessionId,
+      'expected_word': expectedWord,
+      'confused_word': confusedWord,
+      'language':      language,
+      'timestamp':     DateTime.now().toIso8601String(),
+    });
+  }
+
+  /// Confirmed confusion pairs for [profileName] — only pairs that have
+  /// happened at least [minOccurrences] times (default 2), so a single
+  /// one-off mishearing never surfaces as a "pattern". Ordered by
+  /// occurrences descending.
+  static Future<List<Map<String, dynamic>>> getTopWordConfusions({
+    required String profileName,
+    String?         language,
+    int             minOccurrences = 2,
+  }) async {
+    final db   = await _database;
+    var where  = 'profile_name = ?';
+    final args = <dynamic>[profileName];
+
+    if (language != null) {
+      where += ' AND language = ?';
+      args.add(language);
+    }
+    args.add(minOccurrences);
+
+    return db.rawQuery('''
+      SELECT expected_word, confused_word, language, COUNT(*) AS occurrences
+      FROM word_confusions
+      WHERE $where
+      GROUP BY expected_word, confused_word, language
+      HAVING COUNT(*) >= ?
+      ORDER BY occurrences DESC
+    ''', args);
+  }
+
   /// Completed sessions launched from the child-side "Assigned Practice"
   /// banner (sessions.is_assigned_practice = 1), most recent first, for the
   /// Parent dashboard's "Assigned Practice History" card. Scoped to
@@ -802,9 +983,10 @@ class SessionLogger {
       FROM sessions
       WHERE is_assigned_practice = 1
         AND session_id IN (SELECT DISTINCT session_id FROM phoneme_attempts WHERE profile_name = ?)
+        AND session_id NOT IN (SELECT session_id FROM dismissed_practice_history WHERE profile_name = ?)
       ORDER BY date DESC
       LIMIT ?
-    ''', [profileName, limit]);
+    ''', [profileName, profileName, limit]);
 
     const minAttemptsPerSide = 3;
     final result = <Map<String, dynamic>>[];
@@ -849,5 +1031,63 @@ class SessionLogger {
       });
     }
     return result;
+  }
+
+  /// Removes one entry from the parent's "Assigned Practice History" view
+  /// — does NOT touch `sessions`, `word_attempts`, or `phoneme_attempts`;
+  /// [sessionId] simply stops matching getAssignedPracticeHistory's query
+  /// for this profile going forward. See dismissed_practice_history's
+  /// doc comment (schema version 15) for why this is a separate table
+  /// rather than deleting/flagging the real session row.
+  static Future<void> dismissAssignedPracticeHistory({
+    required String profileName,
+    required int    sessionId,
+  }) async {
+    final db = await _database;
+    await db.insert('dismissed_practice_history', {
+      'profile_name': profileName,
+      'session_id':   sessionId,
+      'dismissed_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  // ── Last Session Review ──────────────────────────────────────────────────
+  //
+  // "What did my child actually say" — the most recent completed session,
+  // within a 3-day window. Read-only query filter (WHERE date >= now-3d)
+  // — nothing here deletes or flags any sessions/word_attempts row; a
+  // session aging past 3 days simply stops matching this one query while
+  // remaining fully intact for every other analytics query (word
+  // accuracy, phoneme stats, trend, etc.).
+
+  /// The most recent session for [profileName] completed within the last
+  /// [withinDays] days, or null if there isn't one — see this section's
+  /// doc comment for why "within N days" is a query filter, not a delete.
+  static Future<Map<String, dynamic>?> getLastSessionWithinDays({
+    required String profileName,
+    int             withinDays = 3,
+  }) async {
+    final db = await _database;
+    final rows = await db.rawQuery('''
+      SELECT session_id, date, grade, language, level_name
+      FROM sessions
+      WHERE date >= datetime('now', '-$withinDays days')
+        AND session_id IN (SELECT DISTINCT session_id FROM phoneme_attempts WHERE profile_name = ?)
+      ORDER BY date DESC
+      LIMIT 1
+    ''', [profileName]);
+    return rows.isEmpty ? null : rows.first;
+  }
+
+  /// Every word_attempts row for [sessionId], in the order they were
+  /// attempted — the per-word verdict list for Last Session Review.
+  static Future<List<Map<String, dynamic>>> getWordAttemptsForSession(int sessionId) async {
+    final db = await _database;
+    return db.query(
+      'word_attempts',
+      where: 'session_id = ?',
+      whereArgs: [sessionId],
+      orderBy: 'id ASC',
+    );
   }
 }

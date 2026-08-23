@@ -355,6 +355,23 @@ class EduPlayDatabase {
     );
   }
 
+  /// Count of past task submissions for this exact child+activity+level —
+  /// used as the shuffle seed input for session rotation (see
+  /// TaskRepository.getTasksFor) so a new 8-task subset is drawn every
+  /// session, not just once per calendar day.
+  static Future<int> countSessionsFor({
+    required String childId,
+    required String activityType,
+    required String level,
+  }) async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) as cnt FROM eduplay_sessions
+      WHERE child_id = ? AND activity_type = ? AND level = ?
+    ''', [childId, activityType, level]);
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+
   /// Returns {'letter_order': '78%', 'spelling_gap': '62%', ...} — average
   /// accuracy per skill_area across every session this child has.
   static Future<Map<String, String>> getSkillAccuracyMap(String childId) async {
@@ -370,6 +387,34 @@ class EduPlayDatabase {
       for (final row in rows)
         (row['skill_area'] as String): '${(row['avg_accuracy'] as num).round()}%',
     };
+  }
+
+  /// Average accuracy_percentage across every session this child has —
+  /// the Journey dashboard's single "Overall Accuracy" figure. Plain
+  /// AVG() read over the existing eduplay_sessions table, no new tracking.
+  static Future<double> getOverallAccuracy(String childId) async {
+    final db = await database;
+    final result = await db.rawQuery('''
+      SELECT AVG(accuracy_percentage) as avg_acc
+      FROM eduplay_sessions WHERE child_id = ?
+    ''', [childId]);
+    final value = result.first['avg_acc'];
+    return value == null ? 0.0 : (value as num).toDouble();
+  }
+
+  /// Sessions completed since the start of this calendar week (Monday) —
+  /// the Journey dashboard's "Sessions This Week" figure. Plain COUNT()
+  /// read over the existing eduplay_sessions table, no new tracking.
+  static Future<int> getSessionCountThisWeek(String childId) async {
+    final db = await database;
+    final now = DateTime.now();
+    final startOfWeek = now.subtract(Duration(days: now.weekday - 1));
+    final startIso = DateTime(startOfWeek.year, startOfWeek.month, startOfWeek.day).toIso8601String();
+    final result = await db.rawQuery('''
+      SELECT COUNT(*) as cnt FROM eduplay_sessions
+      WHERE child_id = ? AND completed_at >= ?
+    ''', [childId, startIso]);
+    return Sqflite.firstIntValue(result) ?? 0;
   }
 
   static Future<List<Map<String, dynamic>>> getAssignmentHistory(String childId) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../eduplay_constants.dart';
+import '../eduplay_si_text.dart';
 import '../task_repository.dart';
 import 'activity_screen.dart';
 
@@ -14,7 +15,12 @@ const _kBorder = Color(0xFFE5E7EB);
 /// language}. grade/language come from the child's locked profile
 /// (passed down from the dashboard, which already loaded it) — never a
 /// UI-visible choice on this screen.
-class ActivityLevelSelectScreen extends StatelessWidget {
+///
+/// Stateful (not the original Stateless version) because getTasksFor() is
+/// now async — it seeds its shuffle from a DB-backed attempt count so
+/// session rotation works (see task_repository.dart), so the two task
+/// counts shown here have to be loaded before the cards can render.
+class ActivityLevelSelectScreen extends StatefulWidget {
   final String childId;
   final String activityType;
   final String grade;
@@ -29,7 +35,51 @@ class ActivityLevelSelectScreen extends StatelessWidget {
   });
 
   @override
+  State<ActivityLevelSelectScreen> createState() => _ActivityLevelSelectScreenState();
+}
+
+class _ActivityLevelSelectScreenState extends State<ActivityLevelSelectScreen> {
+  bool _loading = true;
+  int _basicCount = 0;
+  int _advancedCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final basic = await TaskRepository.instance.getTasksFor(
+      activityType: widget.activityType,
+      grade: widget.grade,
+      language: widget.language,
+      level: 'Basic',
+      childId: widget.childId,
+    );
+    final advanced = await TaskRepository.instance.getTasksFor(
+      activityType: widget.activityType,
+      grade: widget.grade,
+      language: widget.language,
+      level: 'Advanced',
+      childId: widget.childId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _basicCount = basic.length;
+      _advancedCount = advanced.length;
+      _loading = false;
+    });
+  }
+
+  bool get _isSinhala => widget.language == 'Sinhala';
+
+  @override
   Widget build(BuildContext context) {
+    final isSinhala = _isSinhala;
+    final activityName = isSinhala
+        ? (EduPlaySiText.activityNames[widget.activityType] ?? widget.activityType)
+        : (kActivityDisplayNames[widget.activityType] ?? widget.activityType);
     return Scaffold(
       backgroundColor: _kBg,
       appBar: AppBar(
@@ -37,46 +87,38 @@ class ActivityLevelSelectScreen extends StatelessWidget {
         elevation: 0,
         iconTheme: const IconThemeData(color: _kTextPrimary),
         title: Text(
-          kActivityDisplayNames[activityType] ?? activityType,
-          style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: 0.3, color: _kTextPrimary),
+          activityName,
+          // Matches Timed Reading / Pronunciation's level-select header
+          // standard (fontSize 20, w800) — was 18/w700, the same drift
+          // flagged for Timed Reading's level-card title before that got
+          // aligned.
+          style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: 0.3, color: _kTextPrimary),
         ),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _LevelCard(
-              level: 'Basic',
-              description: 'Build your foundation',
-              taskCount: TaskRepository.instance
-                  .getTasksFor(
-                    activityType: activityType,
-                    grade: grade,
-                    language: language,
-                    level: 'Basic',
-                    childId: childId,
-                  )
-                  .length,
-              onTap: () => _start(context, 'Basic'),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: _kPrimary))
+          : Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _LevelCard(
+                    level: isSinhala ? EduPlaySiText.levelBasic : 'Basic',
+                    description: isSinhala ? EduPlaySiText.buildFoundation : 'Build your foundation',
+                    taskCount: _basicCount,
+                    isSinhala: isSinhala,
+                    onTap: () => _start(context, 'Basic'),
+                  ),
+                  const SizedBox(height: 14),
+                  _LevelCard(
+                    level: isSinhala ? EduPlaySiText.levelAdvanced : 'Advanced',
+                    description: isSinhala ? EduPlaySiText.levelUpSkills : 'Level up your skills',
+                    taskCount: _advancedCount,
+                    isSinhala: isSinhala,
+                    onTap: () => _start(context, 'Advanced'),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 14),
-            _LevelCard(
-              level: 'Advanced',
-              description: 'Level up your skills',
-              taskCount: TaskRepository.instance
-                  .getTasksFor(
-                    activityType: activityType,
-                    grade: grade,
-                    language: language,
-                    level: 'Advanced',
-                    childId: childId,
-                  )
-                  .length,
-              onTap: () => _start(context, 'Advanced'),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -85,11 +127,11 @@ class ActivityLevelSelectScreen extends StatelessWidget {
       context,
       MaterialPageRoute(
         builder: (_) => ActivityScreen(
-          childId: childId,
-          activityType: activityType,
+          childId: widget.childId,
+          activityType: widget.activityType,
           level: level,
-          grade: grade,
-          language: language,
+          grade: widget.grade,
+          language: widget.language,
         ),
       ),
     );
@@ -100,12 +142,14 @@ class _LevelCard extends StatelessWidget {
   final String level;
   final String description;
   final int taskCount;
+  final bool isSinhala;
   final VoidCallback onTap;
 
   const _LevelCard({
     required this.level,
     required this.description,
     required this.taskCount,
+    required this.isSinhala,
     required this.onTap,
   });
 
@@ -153,7 +197,9 @@ class _LevelCard extends StatelessWidget {
                                   style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w400, letterSpacing: 0.3, color: _kTextSecondary)),
                               const SizedBox(height: 8),
                               Text(
-                                taskCount > 0 ? '$taskCount tasks available' : 'No tasks available yet',
+                                taskCount > 0
+                                    ? (isSinhala ? EduPlaySiText.nTasksAvailable(taskCount) : '$taskCount tasks available')
+                                    : (isSinhala ? EduPlaySiText.noTasksAvailable : 'No tasks available yet'),
                                 style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w500, letterSpacing: 0.3, color: _kPrimary),
                               ),
                             ],

@@ -68,6 +68,7 @@ class AppText {
   static String get xpToNextLevel => _si ? 'ඊළඟ මට්ටමට XP' : 'XP to next level';
   static String get pronunciation => _si ? 'උච්චාරණය' : 'Pronunciation';
   static String get pronunciationDesc => _si ? 'වචන නිවැරදිව කියන්න!' : 'Say words correctly!';
+  static String get eduplay => _si ? 'ක්‍රීඩා මගින් ඉගෙනුම' : 'EduPlay';
   static String get wordBuilding => _si ? 'වචන ගොඩනැගීම' : 'Word Building';
   static String get wordBuildingDesc => _si ? 'වචන හදන්න!' : 'Spell and build words!';
   static String get reading => _si ? 'කියවීම' : 'Reading';
