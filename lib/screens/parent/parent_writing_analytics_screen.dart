@@ -23,6 +23,7 @@ class _ParentWritingAnalyticsScreenState extends State<ParentWritingAnalyticsScr
   ({int lettersPractised, int totalAttempts, int lettersCompleted})? _glance;
   List<bool> _daysPractised = [];
   List<LetterDifficulty> _difficulty = [];
+  Map<String, ({String wrote, String? rejectionReason})> _mismatches = {};
   List<({DateTime date, int total, int accepted})> _timeline = [];
   TechnicalDetails? _technical;
   bool _exporting = false;
@@ -39,6 +40,7 @@ class _ParentWritingAnalyticsScreenState extends State<ParentWritingAnalyticsScr
     final glance = await FreeDrawingDao.getAtAGlance(profileName: widget.profileName);
     final days = await FreeDrawingDao.getDaysPractisedLast2Weeks(profileName: widget.profileName);
     final difficulty = await FreeDrawingDao.getLetterDifficulty(profileName: widget.profileName, language: _language);
+    final mismatches = await FreeDrawingDao.getRecentMismatches(profileName: widget.profileName, language: _language);
     final timeline = await FreeDrawingDao.getAcceptanceTimeline(profileName: widget.profileName);
     final technical = await FreeDrawingDao.getTechnicalDetails(profileName: widget.profileName);
     if (!mounted) return;
@@ -46,6 +48,7 @@ class _ParentWritingAnalyticsScreenState extends State<ParentWritingAnalyticsScr
       _glance = glance;
       _daysPractised = days;
       _difficulty = difficulty;
+      _mismatches = mismatches;
       _timeline = timeline;
       _technical = technical;
       _loading = false;
@@ -131,7 +134,7 @@ class _ParentWritingAnalyticsScreenState extends State<ParentWritingAnalyticsScr
                     children: [
                       _AtAGlanceCard(glance: _glance!, daysPractised: _daysPractised),
                       const SizedBox(height: 18),
-                      _NeedsPracticeCard(difficulty: _difficulty),
+                      _NeedsPracticeCard(difficulty: _difficulty, mismatches: _mismatches),
                       const SizedBox(height: 18),
                       _ProgressOverTimeCard(timeline: _timeline),
                       const SizedBox(height: 18),
@@ -278,9 +281,20 @@ class _StatTile extends StatelessWidget {
 
 // ── 2. Letters that need practice ───────────────────────────────────────
 
-class _NeedsPracticeCard extends StatelessWidget {
+class _NeedsPracticeCard extends StatefulWidget {
   final List<LetterDifficulty> difficulty;
-  const _NeedsPracticeCard({required this.difficulty});
+  // Keyed by target character — see FreeDrawingDao.getRecentMismatches.
+  // Only letters with at least one NOT-accepted attempt appear here.
+  final Map<String, ({String wrote, String? rejectionReason})> mismatches;
+  const _NeedsPracticeCard({required this.difficulty, required this.mismatches});
+
+  @override
+  State<_NeedsPracticeCard> createState() => _NeedsPracticeCardState();
+}
+
+class _NeedsPracticeCardState extends State<_NeedsPracticeCard> {
+  static const int _collapsedCount = 4;
+  bool _showAll = false;
 
   static ({String label, Color color}) _labelFor(LetterDifficulty d) {
     if (!d.everCompleted || d.avgAttemptsPerCompletion > 3) {
@@ -294,6 +308,11 @@ class _NeedsPracticeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final difficulty = widget.difficulty;
+    final mismatches = widget.mismatches;
+    final hasMore = difficulty.length > _collapsedCount;
+    final visible = _showAll ? difficulty : difficulty.take(_collapsedCount).toList();
+
     return _Card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -302,46 +321,92 @@ class _NeedsPracticeCard extends StatelessWidget {
           if (difficulty.isEmpty)
             Text('Not enough data yet.', style: GoogleFonts.nunito(color: AppColors.textSecondary))
           else
-            for (final d in difficulty)
+            for (final d in visible)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 6),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppColors.writing.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(d.letter, style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.writing)),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        '${d.totalAttempts} attempt${d.totalAttempts == 1 ? '' : 's'}',
-                        style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-                      ),
-                    ),
-                    Builder(builder: (context) {
-                      final l = _labelFor(d);
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: l.color.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(20),
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: AppColors.writing.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(d.letter, style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.writing)),
                         ),
-                        child: Text(
-                          l.label,
-                          style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: l.color),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            '${d.totalAttempts} attempt${d.totalAttempts == 1 ? '' : 's'}',
+                            style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                          ),
                         ),
-                      );
-                    }),
+                        Builder(builder: (context) {
+                          final l = _labelFor(d);
+                          return Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                            decoration: BoxDecoration(
+                              color: l.color.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              l.label,
+                              style: GoogleFonts.nunito(fontSize: 11.5, fontWeight: FontWeight.w800, color: l.color),
+                            ),
+                          );
+                        }),
+                      ],
+                    ),
+                    if (mismatches[d.letter] != null) ...[
+                      const SizedBox(height: 6),
+                      _WhatTheyWroteRow(target: d.letter, mismatch: mismatches[d.letter]!),
+                    ],
                   ],
                 ),
               ),
+          if (hasMore) ...[
+            const SizedBox(height: 4),
+            Center(
+              child: TextButton(
+                onPressed: () => setState(() => _showAll = !_showAll),
+                child: Text(
+                  _showAll ? 'Show less' : 'Show all (${difficulty.length})',
+                  style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.writing),
+                ),
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// "What they wrote instead" — the most recent NOT-accepted attempt for one
+/// struggling letter, shown as a calm, factual side-by-side. Deliberately
+/// neutral (no red/wrong styling) to match this card's existing tone — see
+/// FreeDrawingDao.getRecentMismatches for where the data comes from.
+class _WhatTheyWroteRow extends StatelessWidget {
+  final String target;
+  final ({String wrote, String? rejectionReason}) mismatch;
+  const _WhatTheyWroteRow({required this.target, required this.mismatch});
+
+  @override
+  Widget build(BuildContext context) {
+    // A scribble-rejected attempt's raw top-1 guess isn't a meaningful
+    // "what they wrote" (see ScribbleGuard) — label it plainly instead of
+    // showing a misleading letter.
+    final wroteText = mismatch.rejectionReason != null ? 'unclear drawing' : mismatch.wrote;
+    return Padding(
+      padding: const EdgeInsets.only(left: 52),
+      child: Text(
+        'Target: $target   →   Wrote: $wroteText',
+        style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
       ),
     );
   }
@@ -465,6 +530,23 @@ class _TechnicalDetailsCard extends StatelessWidget {
                   _techRow('Avg p_target', '${(details.avgPTarget * 100).toStringAsFixed(1)}%'),
                   _techRow('Avg top-1 confidence', '${(details.avgTop1Confidence * 100).toStringAsFixed(1)}%'),
                   _techRow('Rescued by target scoring', '${details.rescuedByTargetScoringCount}'),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Scribble/nonsense rejections',
+                    style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                  ),
+                  const SizedBox(height: 6),
+                  if (details.rejectionReasonCounts.isEmpty)
+                    Text('None recorded yet.', style: GoogleFonts.nunito(fontSize: 12, color: AppColors.textSecondary))
+                  else
+                    for (final entry in details.rejectionReasonCounts.entries)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 3),
+                        child: Text(
+                          '${entry.key}  (×${entry.value})',
+                          style: GoogleFonts.robotoMono(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                      ),
                   const SizedBox(height: 12),
                   Text(
                     'Most common wrong top-1 predictions',

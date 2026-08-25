@@ -27,4 +27,21 @@ class CanvasInkGuard {
     }
     return count >= minStrokePoints && length >= minPathLength;
   }
+
+  /// Number of separate pen-down strokes — one per null-to-null run in
+  /// [points] (a null marks a pan-end break, see FreeDrawingCanvasState).
+  /// Used by ScribbleGuard's too-many-strokes check.
+  static int strokeCount(List<Offset?> points) {
+    int strokes = 0;
+    bool inStroke = false;
+    for (final p in points) {
+      if (p == null) {
+        inStroke = false;
+      } else if (!inStroke) {
+        strokes++;
+        inStroke = true;
+      }
+    }
+    return strokes;
+  }
 }

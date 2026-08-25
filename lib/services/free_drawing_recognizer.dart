@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'canvas_ink_guard.dart';
 import 'character_model_service.dart';
 import 'drawing_preprocessing.dart';
+import 'scribble_guard.dart';
 
 /// Calibrated from Stage 1 on-device testing: correct answers came back as
 /// low as 57% confidence, so anything higher would reject genuinely
@@ -32,12 +33,18 @@ class TargetEvaluation {
   final double pTarget; // renormalised over the full language-allowed range
   final int targetRank; // 1-based rank of the target within that range
   final bool accepted;
+  // Non-null when ScribbleGuard rejected this attempt (see its doc comment)
+  // — accepted is always false when this is set, regardless of pTarget/
+  // targetRank. Null on every accepted attempt and on every rejection that
+  // was a genuine wrong-target guess rather than a scribble.
+  final ScribbleRejectionReason? rejectionReason;
   const TargetEvaluation({
     required this.rawTop1Character,
     required this.rawTop1Confidence,
     required this.pTarget,
     required this.targetRank,
     required this.accepted,
+    this.rejectionReason,
   });
 }
 
@@ -157,6 +164,19 @@ class FreeDrawingRecognizer {
     }
     final rawTop1Confidence = probOf(rawTop1Index);
 
+    // Second-highest probability in range, for ScribbleGuard's flat-
+    // distribution check — same range/renormalisation as top-1 above.
+    int rawTop2Index = -1;
+    double rawTop2P = -1;
+    for (final i in range) {
+      if (i == rawTop1Index) continue;
+      if (raw[i] > rawTop2P) {
+        rawTop2P = raw[i];
+        rawTop2Index = i;
+      }
+    }
+    final rawTop2Confidence = rawTop2Index >= 0 ? probOf(rawTop2Index) : 0.0;
+
     final targetIndex = classNames.indexOf(target);
     double pTarget = 0.0;
     int targetRank = range.length + 1; // sentinel: target not in this language's range at all
@@ -166,7 +186,18 @@ class FreeDrawingRecognizer {
       targetRank = rankedDesc.indexOf(targetIndex) + 1;
     }
 
-    final accepted = pTarget >= kTargetProbabilityThreshold || targetRank <= kTargetRankTopN;
+    // Scribble/nonsense rejection runs BEFORE the target-based accept
+    // decision below — see ScribbleGuard's doc comment. Any fired reason
+    // overrides an otherwise-passing pTarget/targetRank result.
+    final rejectionReason = ScribbleGuard.check(
+      rawTop1Confidence: rawTop1Confidence,
+      rawTop2Confidence: rawTop2Confidence,
+      strokePoints: strokePoints,
+      inkRatio: pre.inkRatio,
+    );
+
+    final targetAccepted = pTarget >= kTargetProbabilityThreshold || targetRank <= kTargetRankTopN;
+    final accepted = rejectionReason == null && targetAccepted;
 
     return TargetEvaluation(
       rawTop1Character: classNames[rawTop1Index],
@@ -174,6 +205,7 @@ class FreeDrawingRecognizer {
       pTarget: pTarget,
       targetRank: targetRank,
       accepted: accepted,
+      rejectionReason: rejectionReason,
     );
   }
 }

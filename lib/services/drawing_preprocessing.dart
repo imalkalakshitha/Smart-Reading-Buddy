@@ -8,7 +8,14 @@ import 'package:image/image.dart' as img;
 class PreprocessResult {
   final Float32List input; // flattened 128*128, row-major, 0.0-1.0
   final bool hasInk;
-  const PreprocessResult({required this.input, required this.hasInk});
+  // Dark-pixel count / bounding-box area, both from the pre-crop grayscale
+  // image (see step 3-4 below) — 0.0 whenever hasInk is false. Resolution-
+  // independent (it's a ratio, not a raw pixel count), unlike stroke path
+  // length which depends on the canvas's on-screen size — see
+  // ScribbleGuard's doc comment for why ink ratio + stroke count are used
+  // for scribble rejection instead of a raw path-length threshold.
+  final double inkRatio;
+  const PreprocessResult({required this.input, required this.hasInk, this.inkRatio = 0.0});
 }
 
 /// Turns a raw PNG capture of the drawing canvas into the exact
@@ -80,6 +87,7 @@ class DrawingPreprocessor {
     if (!hasInk) {
       return PreprocessResult(input: Float32List(targetSize * targetSize), hasInk: false);
     }
+    final inkRatio = bboxArea > 0 ? inkCount / bboxArea : 0.0;
 
     // 5. padding, ~10% of the larger bbox dimension
     final bw = maxX - minX + 1;
@@ -119,6 +127,6 @@ class DrawingPreprocessor {
       }
     }
 
-    return PreprocessResult(input: input, hasInk: true);
+    return PreprocessResult(input: input, hasInk: true, inkRatio: inkRatio);
   }
 }

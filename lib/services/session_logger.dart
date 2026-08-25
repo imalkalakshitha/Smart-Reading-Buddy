@@ -15,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 16,
+      version: 17,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -225,6 +225,15 @@ class SessionLogger {
             // Sinhala's Gemini cloud path).
             await db.execute('ALTER TABLE word_attempts ADD COLUMN recognized_text TEXT');
           }
+          if (oldVersion < 17) {
+            // Scribble/nonsense rejection (see scribble_guard.dart) —
+            // records WHY an attempt was auto-rejected as unrecognisable
+            // (low_peak_confidence / flat_distribution / too_many_strokes /
+            // excessive_ink), independent of the target-scoring columns
+            // above. Additive, nullable: every existing row, and every
+            // future non-rejected attempt, gets NULL.
+            await db.execute('ALTER TABLE free_drawing_attempts ADD COLUMN rejection_reason TEXT');
+          }
           if (oldVersion < 15) {
             // Per-parent "remove from Assigned Practice History view"
             // (see getAssignedPracticeHistory) — a separate table rather
@@ -404,7 +413,8 @@ class SessionLogger {
         p_target REAL NOT NULL,
         target_rank INTEGER NOT NULL,
         accepted INTEGER NOT NULL,
-        attempt_number INTEGER NOT NULL
+        attempt_number INTEGER NOT NULL,
+        rejection_reason TEXT
       )
     ''');
   }

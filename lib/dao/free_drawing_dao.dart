@@ -28,6 +28,7 @@ class FreeDrawingDao {
     required int targetRank,
     required bool accepted,
     required int attemptNumber,
+    String? rejectionReason,
   }) async {
     final db = await _db;
     await db.insert('free_drawing_attempts', {
@@ -44,6 +45,7 @@ class FreeDrawingDao {
       'target_rank': targetRank,
       'accepted': accepted ? 1 : 0,
       'attempt_number': attemptNumber,
+      'rejection_reason': rejectionReason,
     });
   }
 
@@ -223,6 +225,18 @@ class FreeDrawingDao {
       LIMIT 10
     ''', [profileName]);
 
+    // Scribble/nonsense rejection breakdown (see scribble_guard.dart) — how
+    // often each rule fired, for model-evaluation purposes. Rows with a
+    // NULL rejection_reason (accepted, or rejected on target-score alone)
+    // are excluded by the WHERE clause, not counted as a "reason".
+    final rejectionRows = await db.rawQuery('''
+      SELECT rejection_reason, COUNT(*) AS cnt
+      FROM free_drawing_attempts
+      WHERE profile_name = ? AND rejection_reason IS NOT NULL
+      GROUP BY rejection_reason
+      ORDER BY cnt DESC
+    ''', [profileName]);
+
     return TechnicalDetails(
       rescuedByTargetScoringCount: rescuedCount,
       totalAttempts: (avgRow['total'] as int?) ?? 0,
@@ -235,7 +249,53 @@ class FreeDrawingDao {
                 count: r['cnt'] as int,
               ))
           .toList(),
+      rejectionReasonCounts: {
+        for (final r in rejectionRows) r['rejection_reason'] as String: r['cnt'] as int,
+      },
     );
+  }
+
+  /// For each target character that has at least one NOT-accepted attempt,
+  /// the most recent such attempt's raw top-1 prediction and rejection
+  /// reason — the Parent Dashboard's "what they wrote instead" view (see
+  /// ParentWritingAnalyticsScreen's _NeedsPracticeCard). Pulled entirely
+  /// from columns already saved per attempt (top1_prediction,
+  /// rejection_reason) — no new tracking, no schema change.
+  ///
+  /// [wrote] is the raw top1_prediction, meaningful as "what they wrote"
+  /// only when the attempt wasn't a scribble rejection (see
+  /// scribble_guard.dart) — when [rejectionReason] is non-null, the raw
+  /// top-1 guess is not a meaningful "what they wrote" and callers should
+  /// show the rejection reason instead (e.g. "unclear drawing"), not the
+  /// letter in [wrote].
+  static Future<Map<String, ({String wrote, String? rejectionReason})>> getRecentMismatches({
+    required String profileName,
+    required String language,
+  }) async {
+    final db = await _db;
+    final rows = await db.rawQuery('''
+      SELECT fa.target_character, fa.top1_prediction, fa.rejection_reason
+      FROM free_drawing_attempts fa
+      WHERE fa.profile_name = ? AND fa.language = ? AND fa.level_type = 'letter' AND fa.accepted = 0
+        AND fa.id = (
+          SELECT fa2.id FROM free_drawing_attempts fa2
+          WHERE fa2.target_character = fa.target_character
+            AND fa2.profile_name = fa.profile_name
+            AND fa2.language = fa.language
+            AND fa2.level_type = 'letter'
+            AND fa2.accepted = 0
+          ORDER BY fa2.id DESC
+          LIMIT 1
+        )
+    ''', [profileName, language]);
+
+    return {
+      for (final r in rows)
+        r['target_character'] as String: (
+          wrote: r['top1_prediction'] as String,
+          rejectionReason: r['rejection_reason'] as String?,
+        ),
+    };
   }
 
   /// Every raw attempt row for [profileName], oldest first — CSV export's
@@ -273,11 +333,16 @@ class TechnicalDetails {
   final double avgPTarget;
   final double avgTop1Confidence;
   final List<({String target, String wrongPrediction, int count})> commonWrongPredictions;
+  // Keyed by ScribbleRejectionReason.dbValue (e.g. 'low_peak_confidence'),
+  // count of attempts rejected for that reason. Empty map = no scribble
+  // rejections logged yet for this profile.
+  final Map<String, int> rejectionReasonCounts;
   const TechnicalDetails({
     required this.rescuedByTargetScoringCount,
     required this.totalAttempts,
     required this.avgPTarget,
     required this.avgTop1Confidence,
     required this.commonWrongPredictions,
+    this.rejectionReasonCounts = const {},
   });
 }

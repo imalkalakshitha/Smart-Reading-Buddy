@@ -16,5 +16,9 @@ import 'writing_data.dart' as guided_tracing;
 List<List<Offset>>? getFreeDrawingStrokes(String character, {required bool isSinhala}) {
   if (isSinhala) return null;
   if (character.length != 1) return null;
-  return guided_tracing.letterPaths[character.toUpperCase()];
+  // Only look up already-uppercase input — matching a lowercase target
+  // (e.g. 'a') against the uppercase-shaped 'A' path would show the wrong
+  // letterform, which is worse than showing no animation at all.
+  if (character != character.toUpperCase()) return null;
+  return guided_tracing.letterPaths[character];
 }

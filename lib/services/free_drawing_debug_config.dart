@@ -4,4 +4,4 @@
 /// prediction + confidence on the result screen when true. Flip to false
 /// before any parent/child-facing demo — the child must never see these
 /// numbers.
-const bool kShowFreeDrawingDebugInfo = true;
+const bool kShowFreeDrawingDebugInfo = false;

@@ -10,11 +10,18 @@ import '../../models/app_state.dart';
 import '../../services/character_model_service.dart';
 import '../../services/free_drawing_debug_config.dart';
 import '../../services/free_drawing_recognizer.dart';
+import '../../services/scribble_guard.dart';
 import '../../widgets/free_drawing_canvas.dart';
-import '../../widgets/mascot_reaction.dart';
+import '../../widgets/sparkle_burst.dart';
 import '../../widgets/stroke_order_animation.dart';
 
 const Color _kWarmBg = Color(0xFFFFF9F0);
+// Screen-wide chrome (app bar, all buttons, canvas border) — ONE consistent
+// colour across the whole Letter Time flow, regardless of which letter is
+// active. The varied per-letter palette below is reserved for the target-
+// letter card only (and, for uppercase letters with stroke data, that
+// card's matching animation box) — see _buildIntro.
+const Color _kScreenColor = AppColors.writing;
 const List<Color> _kLetterColors = [
   Color(0xFFFF6B6B),
   Color(0xFFFFA94D),
@@ -166,6 +173,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
         targetRank: evaluation.targetRank,
         accepted: evaluation.accepted,
         attemptNumber: attemptNumber,
+        rejectionReason: evaluation.rejectionReason?.dbValue,
       );
 
       if (!mounted) return;
@@ -218,7 +226,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
     return Scaffold(
       backgroundColor: _kWarmBg,
       appBar: AppBar(
-        backgroundColor: _step == _LetterStep.loading ? AppColors.writing : _currentColor,
+        backgroundColor: _kScreenColor,
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Letter Time!'),
@@ -237,7 +245,12 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
   Widget _buildIntro(BuildContext context) {
     final cue = cueFor(_currentTarget);
     final strokes = getFreeDrawingStrokes(_currentTarget, isSinhala: _isSinhala);
-    final color = _currentColor;
+    final hasStrokes = strokes != null && strokes.isNotEmpty;
+    // Target-letter card keeps its own per-letter accent — the one place
+    // the varied palette is still allowed (see _kScreenColor's doc
+    // comment). Uppercase English (hasStrokes) also carries this accent
+    // onto its stroke-animation box, unchanged from before.
+    final accent = _currentColor;
 
     return Padding(
       padding: const EdgeInsets.all(20),
@@ -245,11 +258,11 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
         children: [
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 18),
+            padding: EdgeInsets.symmetric(vertical: hasStrokes ? 18 : 32),
             decoration: BoxDecoration(
-              color: color,
+              color: accent,
               borderRadius: BorderRadius.circular(28),
-              boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 8))],
+              boxShadow: [BoxShadow(color: accent.withValues(alpha: 0.4), blurRadius: 14, offset: const Offset(0, 8))],
             ),
             child: Column(
               children: [
@@ -268,20 +281,42 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
             ),
           ),
           const SizedBox(height: 18),
-          if (strokes != null && strokes.isNotEmpty)
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  border: Border.all(color: color.withValues(alpha: 0.3), width: 3),
-                ),
-                child: StrokeOrderAnimation(key: _animationKey, strokes: strokes, color: color),
-              ),
-            )
-          else
-            const Spacer(),
+          // Uppercase English (hasStrokes) keeps its exact prior layout —
+          // an Expanded stroke-animation box. Lowercase English/Sinhala
+          // have no stroke data (see free_drawing_stroke_paths.dart), so
+          // rather than reserving that same space and leaving it blank,
+          // this space now holds a small friendly instruction instead —
+          // still Expanded, so the overall column layout/spacing matches
+          // the uppercase case and nothing looks like it's missing.
+          Expanded(
+            child: hasStrokes
+                ? Container(
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(28),
+                      border: Border.all(color: accent.withValues(alpha: 0.3), width: 3),
+                    ),
+                    child: StrokeOrderAnimation(key: _animationKey, strokes: strokes, color: accent),
+                  )
+                : Center(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.visibility_rounded, size: 40, color: _kScreenColor.withValues(alpha: 0.45)),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Look at the letter, then draw it below!',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+          ),
           const SizedBox(height: 18),
           Row(
             children: [
@@ -291,8 +326,8 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                   icon: const Icon(Icons.replay_rounded),
                   label: const Text('Replay'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: color,
-                    side: BorderSide(color: color, width: 2),
+                    foregroundColor: _kScreenColor,
+                    side: const BorderSide(color: _kScreenColor, width: 2),
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     textStyle: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800),
@@ -307,7 +342,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                   icon: const Icon(Icons.edit_rounded),
                   label: const Text('My Turn!'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: color,
+                    backgroundColor: _kScreenColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -323,7 +358,6 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
   }
 
   Widget _buildDraw(BuildContext context) {
-    final color = _currentColor;
     return Padding(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -337,8 +371,8 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
             child: Container(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: color.withValues(alpha: 0.35), width: 3),
-                boxShadow: [BoxShadow(color: color.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 6))],
+                border: Border.all(color: _kScreenColor.withValues(alpha: 0.35), width: 3),
+                boxShadow: [BoxShadow(color: _kScreenColor.withValues(alpha: 0.2), blurRadius: 12, offset: const Offset(0, 6))],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(25),
@@ -363,8 +397,8 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                   icon: const Icon(Icons.refresh_rounded),
                   label: const Text('Clear'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: color,
-                    side: BorderSide(color: color, width: 2),
+                    foregroundColor: _kScreenColor,
+                    side: const BorderSide(color: _kScreenColor, width: 2),
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
                     textStyle: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800),
@@ -387,7 +421,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                         )
                       : const Text('Check'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: color,
+                    backgroundColor: _kScreenColor,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 18),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -405,7 +439,6 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
   Widget _buildResult(BuildContext context) {
     final accepted = _lastEvaluation?.accepted ?? false;
     final offerHelp = !accepted && _failedAttempts >= _kMaxAttemptsBeforeOffer;
-    final color = _currentColor;
 
     return Center(
       child: Padding(
@@ -413,8 +446,12 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            MascotReaction(color: color, happy: accepted, size: 120),
-            const SizedBox(height: 18),
+            // Face-free celebration on success only — no celebration widget
+            // at all on retry, just the calm, neutral text below.
+            if (accepted) ...[
+              const SparkleBurst(size: 140),
+              const SizedBox(height: 18),
+            ],
             Text(
               accepted ? 'Great job!' : "Let's try again!",
               style: GoogleFonts.nunito(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
@@ -430,7 +467,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                 icon: const Icon(Icons.arrow_forward_rounded),
                 label: const Text('Next Letter'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: color,
+                  backgroundColor: _kScreenColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 18),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
@@ -450,7 +487,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                 icon: const Icon(Icons.brush_rounded),
                 label: const Text('Try Again'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: color,
+                  backgroundColor: _kScreenColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 18),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
@@ -463,7 +500,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
                   onPressed: _replayFromResult,
                   icon: const Icon(Icons.replay_rounded),
                   label: const Text('Watch it again'),
-                  style: OutlinedButton.styleFrom(foregroundColor: color, side: BorderSide(color: color, width: 2)),
+                  style: OutlinedButton.styleFrom(foregroundColor: _kScreenColor, side: const BorderSide(color: _kScreenColor, width: 2)),
                 ),
                 const SizedBox(height: 8),
                 TextButton(
@@ -507,6 +544,14 @@ class _DebugInfoPanel extends StatelessWidget {
           Text('raw top-1: ${evaluation.rawTop1Character} (${(evaluation.rawTop1Confidence * 100).toStringAsFixed(1)}%)',
               style: GoogleFonts.robotoMono(fontSize: 12)),
           Text('accepted: ${evaluation.accepted}', style: GoogleFonts.robotoMono(fontSize: 12)),
+          Text(
+            'rejection reason: ${evaluation.rejectionReason?.dbValue ?? '(none)'}',
+            style: GoogleFonts.robotoMono(
+              fontSize: 12,
+              color: evaluation.rejectionReason != null ? Colors.red.shade700 : null,
+              fontWeight: evaluation.rejectionReason != null ? FontWeight.w700 : null,
+            ),
+          ),
         ],
       ),
     );
