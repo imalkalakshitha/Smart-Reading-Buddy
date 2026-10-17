@@ -218,6 +218,16 @@ class _HomeContent extends StatelessWidget {
                 delay: 540,
                 onTap: () => Navigator.pushNamed(context, AppRouter.writing),
               ),
+              // Shared, cross-module feature (English only) — see
+              // NumbersHubScreen. Not tied to any one team's module.
+              _ActivityCard(
+                icon: '🔢',
+                title: 'Numbers',
+                description: 'Say numbers & speed games!',
+                gradientColors: const [Color(0xFFF39C12), Color(0xFFE67E22)],
+                delay: 620,
+                onTap: () => Navigator.pushNamed(context, AppRouter.numbers),
+              ),
             ]),
           ),
         ),

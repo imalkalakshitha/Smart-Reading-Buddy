@@ -27,6 +27,7 @@ import '../screens/timed_reading/reading_screen.dart';
 import '../screens/timed_reading/miscue_marking_screen.dart';
 import '../screens/timed_reading/results_screen.dart';
 import '../screens/timed_reading/repeated_reading_challenge_screen.dart';
+import '../screens/numbers/numbers_hub_screen.dart';
 import '../models/local_storage.dart';
 import '../data/pronunciation_args.dart';
 import '../data/reading_data.dart';
@@ -76,6 +77,7 @@ class AppRouter {
   static const timedReadingMiscue     = '/timed-reading/miscue';
   static const timedReadingResults    = '/timed-reading/results';
   static const timedReadingChallenge  = '/timed-reading/challenge';
+  static const numbers                = '/numbers';
 
   static Map<String, WidgetBuilder> get routes => {
         splash:        (_) => const SplashScreen(),
@@ -91,6 +93,7 @@ class AppRouter {
         calibration:        (_) => const CalibrationScreen(),
         eduplay:            (_) => const EduPlayJourneyScreen(),
         timedReading:       (_) => const TimedReadingHomeScreen(),
+        numbers:            (_) => const NumbersHubScreen(),
       };
 
   static Route<dynamic>? onGenerateRoute(RouteSettings settings) {

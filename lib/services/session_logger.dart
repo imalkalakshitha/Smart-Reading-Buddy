@@ -15,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 17,
+      version: 18,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -250,6 +250,30 @@ class SessionLogger {
               )
             ''');
           }
+          if (oldVersion < 18) {
+            // Numbers practice (Number Word Pronunciation + Rapid Digit
+            // Naming) — additive only, own table, no FK into any existing
+            // table. See number_practice_dao.dart for the only code that
+            // reads/writes it.
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS number_practice_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                activity_type TEXT NOT NULL,
+                level_key TEXT,
+                item TEXT NOT NULL,
+                recognized_text TEXT,
+                verdict TEXT,
+                score REAL NOT NULL,
+                time_ms INTEGER,
+                digits_correct INTEGER,
+                error_count INTEGER,
+                teen_ty_error INTEGER NOT NULL DEFAULT 0,
+                attempt_number INTEGER,
+                timestamp TEXT NOT NULL
+              )
+            ''');
+          }
         }
       },
     );
@@ -415,6 +439,25 @@ class SessionLogger {
         accepted INTEGER NOT NULL,
         attempt_number INTEGER NOT NULL,
         rejection_reason TEXT
+      )
+    ''');
+    // Mirrors the oldVersion < 18 branch above exactly.
+    await db.execute('''
+      CREATE TABLE number_practice_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        activity_type TEXT NOT NULL,
+        level_key TEXT,
+        item TEXT NOT NULL,
+        recognized_text TEXT,
+        verdict TEXT,
+        score REAL NOT NULL,
+        time_ms INTEGER,
+        digits_correct INTEGER,
+        error_count INTEGER,
+        teen_ty_error INTEGER NOT NULL DEFAULT 0,
+        attempt_number INTEGER,
+        timestamp TEXT NOT NULL
       )
     ''');
   }
