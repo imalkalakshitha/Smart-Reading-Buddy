@@ -13,23 +13,7 @@ import 'groq_sinhala_scorer.dart'; // FALLBACK — see stopAndScore/startRecordi
 import 'pronunciation_scorer.dart'; // Sinhala NO_INTERNET fallback — see stopAndScore below
 import 'simple_pronunciation_scorer.dart';
 
-/// Hybrid pronunciation scorer — word verification + quality stars.
-///
-/// English  → on-device STT (en_US) + 5-strategy text matching (exact,
-///            phonetic variants, edit-distance, similarity ratio, Soundex).
-///            Unchanged — si_LK STT is not reliably available offline, but
-///            en_US is standard on virtually every Android device.
-/// Sinhala  → GeminiSinhalaScorer (cloud multimodal transcription via
-///            REST — see gemini_sinhala_scorer.dart). Retries once with
-///            backoff on Gemini 429 rate-limit responses (see
-///            GeminiSinhalaScorer.stopAndScore). When there's no internet,
-///            falls back to PronunciationScorer (offline MFCC/DTW),
-///            reusing the same raw recording Gemini already captured — no
-///            second attempt needed, no child-facing "no internet"
-///            message. GroqSinhalaScorer (Whisper large-v3 via Groq) is
-///            the other experiment — commented directly above its call
-///            site below, uncomment to switch to it.
-///
+
 /// When English STT is completely unavailable the energy-envelope scorer
 /// (SimplePronunciationScorer) is used as a last resort.
 ///

@@ -14,6 +14,7 @@ import '../../models/pronunciation_result.dart';
 import '../../services/coaching_strategy.dart';
 import '../../services/gemini_sinhala_scorer.dart';
 import '../../services/hybrid_pronunciation_scorer.dart';
+import '../../services/ble_command_service.dart';
 import '../../services/phoneme_substitution_analyzer.dart';
 import '../../services/session_logger.dart';
 import '../../widgets/phoneme_image_widget.dart';
@@ -101,6 +102,13 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
 
   WordItem get _currentWord => widget.args.words[_wordIndex];
   int get _totalWords => widget.args.words.length;
+
+  /// AppState.language holds 'sinhala' (lowercase) for Sinhala, anything
+  /// else for English — same field/values this screen already checks
+  /// everywhere (e.g. AppState.language == 'sinhala' above). Mapped to
+  /// the 2-letter code the ESP32 firmware's BLE command parser expects,
+  /// same pattern as activity_screen.dart's _bleLanguageCode.
+  String get _bleLanguageCode => AppState.language == 'sinhala' ? 'SI' : 'EN';
 
   @override
   void initState() {
@@ -281,6 +289,7 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     // captured to score), but does count toward the fail-then-skip total,
     // same as WRONG/ALMOST.
     if (result.verdict == 'NO_SPEECH') {
+      BleCommandService.instance.send('LOUDER:$_bleLanguageCode');
       setState(() {
         _failCount++;
         _lastResult = result;
@@ -308,6 +317,11 @@ class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
     // now falls back to the offline DTW scorer instead of ever returning
     // NO_INTERNET, so this branch is unreachable. See
     // HybridPronunciationScorer.stopAndScore's Sinhala-branch doc comment.
+
+    // Fixed command keywords for the physical buddy speaker, decoupled
+    // from the on-screen result text below — same pattern as EduPlay's
+    // activity_screen.dart. OK = correct; ALMOST/WRONG = incorrect.
+    BleCommandService.instance.send(result.verdict == 'OK' ? 'PRAISE:$_bleLanguageCode' : 'RETRY:$_bleLanguageCode');
 
     const scoreMap = {'OK': 0.9, 'ALMOST': 0.7, 'WRONG': 0.25};
     _allAttempts.add({

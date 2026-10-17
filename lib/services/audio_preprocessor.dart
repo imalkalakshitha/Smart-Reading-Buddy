@@ -113,6 +113,7 @@ class AudioPreprocessor {
     return (before, after);
   }
 
+
   static AudioStats _stats(Int16List samples) {
     if (samples.isEmpty) {
       return const AudioStats(peakAmplitude: 0, rmsAmplitude: 0, sampleCount: 0);
