@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'models/app_colors.dart';
-import 'models/local_storage.dart';
-import 'router/app_router.dart';
-import 'services/timed_reading_speech_bridge.dart';
-import 'eduplay/eduplay_database.dart';
-import 'eduplay/eduplay_profile_mapper.dart';
-import 'eduplay/task_repository.dart';
-import 'eduplay/eduplay_engine_holder.dart';
+import 'package:smart_reading_buddy/core/models/app_colors.dart';
+import 'package:smart_reading_buddy/core/models/local_storage.dart';
+import 'package:smart_reading_buddy/core/router/app_router.dart';
+import 'package:smart_reading_buddy/core/services/speech/timed_reading_speech_bridge.dart';
+import 'package:smart_reading_buddy/core/dao/eduplay_database.dart';
+import 'package:smart_reading_buddy/core/services/eduplay_profile_mapper.dart';
+import 'package:smart_reading_buddy/features/eduplay_encoding/services/task_repository.dart';
+import 'package:smart_reading_buddy/features/eduplay_encoding/services/eduplay_engine_holder.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();

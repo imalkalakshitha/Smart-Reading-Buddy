@@ -1,0 +1,1325 @@
+import 'dart:async';
+import 'dart:math';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_animate/flutter_animate.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'package:smart_reading_buddy/features/pronunciation/data/pronunciation_args.dart';
+import 'package:smart_reading_buddy/core/data/word_data.dart';
+import 'package:smart_reading_buddy/core/models/app_colors.dart';
+import 'package:smart_reading_buddy/core/models/app_state.dart';
+import 'package:smart_reading_buddy/core/models/local_storage.dart';
+import 'package:smart_reading_buddy/core/router/app_router.dart';
+import 'package:smart_reading_buddy/core/models/pronunciation_result.dart';
+import 'package:smart_reading_buddy/features/pronunciation/services/coaching_strategy.dart';
+import 'package:smart_reading_buddy/core/services/speech/gemini_sinhala_scorer.dart';
+import 'package:smart_reading_buddy/core/services/speech/hybrid_pronunciation_scorer.dart';
+import 'package:smart_reading_buddy/core/services/ble_command_service.dart';
+import 'package:smart_reading_buddy/features/pronunciation/services/phoneme_substitution_analyzer.dart';
+import 'package:smart_reading_buddy/core/services/session_logger.dart';
+import 'package:smart_reading_buddy/features/pronunciation/widgets/phoneme_image_widget.dart';
+
+class PronunciationSessionScreen extends StatefulWidget {
+  final PronunciationSessionArgs args;
+
+  const PronunciationSessionScreen({super.key, required this.args});
+
+  @override
+  State<PronunciationSessionScreen> createState() =>
+      _PronunciationSessionScreenState();
+}
+
+class _PronunciationSessionScreenState extends State<PronunciationSessionScreen>
+    with TickerProviderStateMixin {
+  int _wordIndex = 0;
+  int _attempt = 0;
+  // Counts WRONG + ALMOST + NO_SPEECH together on the current word. Once it
+  // hits 4, retrying no longer auto-hides the result overlay — a persistent
+  // "Skip this word" button appears instead (tap required, not automatic).
+  int _failCount = 0;
+  static const int _maxFailsBeforeSkip = 3;
+  bool _recording = false;
+  Timer? _autoStopTimer;
+  static const _maxRecordingDuration = Duration(seconds: 7);
+
+  // ── Voice-activity auto-stop (VAD) ────────────────────────────────────
+  // Amplitude-threshold only — no transcription happens during recording,
+  // this just detects speech-then-silence to time the auto-stop.
+  static const double _vadSpeechThreshold  = 0.12;
+  static const double _vadSilenceThreshold = 0.06;
+  // TEST VALUE — was 900ms. Diagnosing error_no_match/NO_SPEECH on short
+  // single-syllable words (e.g. "pen") despite loud, clearly-captured
+  // speech (peak=1.0): the leading theory is that .stop() fires too soon
+  // after a short word for Android's SpeechRecognizer to finalize
+  // cleanly (the audio was captured fine — this is about recognizer
+  // finalization timing, not VAD missing the word). Bumped to 1300ms as
+  // a live-device test; revert to 900ms if this doesn't fix it, or keep
+  // permanently if it does. Not the same constant as Timed Reading's own
+  // 2500ms silenceGrace (timed_reading_speech_bridge.dart) — untouched.
+  static const Duration _vadSilenceGrace   = Duration(milliseconds: 1300);
+  // CONFIRMED from live testing: bumping _vadSilenceGrace alone (900ms ->
+  // 1300ms above) didn't fix it — short words (<=4 letters: pen/sun/cat/
+  // dog/pig/eat/ice) still returned error_no_match/NO_SPEECH at peak
+  // amplitude 1.0. Root cause isn't post-speech silence timing, it's
+  // Android's on-device SpeechRecognizer needing a minimum TOTAL session
+  // duration to finalize a short utterance reliably, regardless of how
+  // quickly silence is detected after it. This floor only delays when
+  // VAD is ALLOWED to fire _stopAndScore — it never extends recording
+  // for a word that's already run past this duration on its own.
+  static const Duration _minListenDurationForShortWords = Duration(milliseconds: 1400);
+  static const int _shortWordMaxLength = 4;
+  bool get _isShortWord => _currentWord.word.length <= _shortWordMaxLength;
+  DateTime? _recordingStartedAt;
+  StreamSubscription<double>? _vadSub;
+  bool _vadHasSpokenOnce = false;
+  DateTime? _vadSilenceStartedAt;
+  bool _scoring = false;
+  PronunciationResult?  _lastResult;
+  bool                  _showResult  = false;
+  bool                  _vmgExpanded = false;
+  CoachingResponse?     _coaching;
+
+  late AnimationController _waveCtrl;
+  late AnimationController _resultCtrl;
+  late final AudioPlayer _audioPlayer;
+  bool _playing = false;
+  final List<Map<String, dynamic>> _allAttempts = [];
+  // One entry per WRONG/ALMOST attempt that yielded at least one detected
+  // substitution — see PhonemeSubstitutionAnalyzer.
+  final List<({String word, String language, List<({String expected, String produced})> substitutions})>
+      _allSubstitutions = [];
+  // One entry per attempt where the recognized text was a different,
+  // independently-valid English word (a full word swap, e.g. "cat" said
+  // instead of "sun") rather than a phonetic mispronunciation — see
+  // _detectWordConfusion.
+  final List<({String expectedWord, String confusedWord, String language})>
+      _allWordConfusions = [];
+  int _correct = 0;
+  int _almost = 0;
+  int _wrong = 0;
+  int _totalXp = 0;
+  final _stopwatch = Stopwatch();
+
+  WordItem get _currentWord => widget.args.words[_wordIndex];
+  int get _totalWords => widget.args.words.length;
+
+  /// AppState.language holds 'sinhala' (lowercase) for Sinhala, anything
+  /// else for English — same field/values this screen already checks
+  /// everywhere (e.g. AppState.language == 'sinhala' above). Mapped to
+  /// the 2-letter code the ESP32 firmware's BLE command parser expects,
+  /// same pattern as activity_screen.dart's _bleLanguageCode.
+  String get _bleLanguageCode => AppState.language == 'sinhala' ? 'SI' : 'EN';
+
+  @override
+  void initState() {
+    super.initState();
+    _stopwatch.start();
+    _audioPlayer = AudioPlayer();
+    _audioPlayer.onPlayerComplete.listen((_) {
+      if (mounted) setState(() => _playing = false);
+    });
+    _waveCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 600),
+    );
+    _resultCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 400),
+    );
+  }
+
+  @override
+  void dispose() {
+    _autoStopTimer?.cancel();
+    _vadSub?.cancel();
+    _audioPlayer.dispose();
+    _waveCtrl.dispose();
+    _resultCtrl.dispose();
+    _stopwatch.stop();
+    super.dispose();
+  }
+
+  Future<void> _playReference() async {
+    if (_playing) {
+      await _audioPlayer.stop();
+      setState(() => _playing = false);
+      return;
+    }
+    final lang     = AppState.language == 'sinhala' ? 'si' : 'en';
+    final grade    = AppState.grade == 'grade4' ? 'grade4' : 'grade3';
+    final assetPath = 'assets/audio/words/$lang/$grade/${_currentWord.pKey}.wav';
+    try {
+      setState(() => _playing = true);
+      await _audioPlayer.play(AssetSource(assetPath.replaceFirst('assets/', '')));
+    } catch (_) {
+      setState(() => _playing = false);
+    }
+  }
+
+  // Cached once — the curriculum's English word list (30 words) doubles as
+  // one of the two "is this a real word" sources for Word Confusion
+  // Patterns (see _detectWordConfusion). The other source,
+  // HybridPronunciationScorer.knownDistinctRealWords, is looked up live
+  // (already a static const, no need to cache).
+  static final Set<String> _curriculumEnglishWords =
+      WordData.allWordsForLanguage('en').map((w) => w.word.toLowerCase()).toSet();
+
+  /// Returns the confused word when [recognized] is a full, valid-word
+  /// swap for [expected] — e.g. "cat" said instead of "sun" — rather than
+  /// a phonetic mispronunciation or a truncated mishearing. Checked
+  /// regardless of verdict: an accepted phonetic-variant match (e.g.
+  /// "pin" for "pen") never qualifies, since neither word is in either
+  /// "real word" source (see the source sets' own doc comments — that's
+  /// deliberate, not an oversight).
+  ///
+  /// Real-word sources: the curriculum's own English word list, plus
+  /// HybridPronunciationScorer.knownDistinctRealWords (hand-audited
+  /// near-miss real words for those same curriculum words). No general
+  /// English dictionary is bundled in this project — see this feature's
+  /// design discussion for why these two sources were chosen instead of
+  /// adding one.
+  String? _detectWordConfusion({required String? recognized, required String expected}) {
+    if (recognized == null || recognized.isEmpty) return null;
+    final e = expected.toLowerCase().trim();
+    final whole = recognized.toLowerCase().trim();
+    final candidates = {whole, ...whole.split(RegExp(r'\s+'))};
+    for (final r in candidates) {
+      if (r.isEmpty || r == e) continue;
+      final isRealWord =
+          _curriculumEnglishWords.contains(r) || HybridPronunciationScorer.knownDistinctRealWords.contains(r);
+      if (isRealWord && !_isWordConfusionFragment(r, e)) return r;
+    }
+    return null;
+  }
+
+  /// True when the shorter of [a]/[b] is a truncated prefix of the longer
+  /// one AND under ~60% of its length — a partial mishearing (e.g. "pap"
+  /// of "paper"), not a distinct word swap, even when the shorter string
+  /// happens to independently be a real word too.
+  bool _isWordConfusionFragment(String a, String b) {
+    final shorter = a.length <= b.length ? a : b;
+    final longer  = a.length <= b.length ? b : a;
+    if (longer.isEmpty || !longer.startsWith(shorter)) return false;
+    return shorter.length / longer.length < 0.6;
+  }
+
+  void _onMicTap() {
+    // Single-tap-to-start only — recording stops itself via VAD auto-stop
+    // (or the 7s ceiling), so a tap while already recording is a no-op.
+    if (_showResult || _scoring || _recording) return;
+    setState(() => _recording = true);
+    _vadHasSpokenOnce   = false;
+    _vadSilenceStartedAt = null;
+    _recordingStartedAt  = DateTime.now();
+    _waveCtrl.repeat();
+    final lang = AppState.language == 'sinhala' ? 'si' : 'en';
+    HybridPronunciationScorer.startRecording(lang: lang);
+    _autoStopTimer?.cancel();
+    _autoStopTimer = Timer(_maxRecordingDuration, _stopAndScore);
+    _vadSub?.cancel();
+    _vadSub = HybridPronunciationScorer.amplitudeStream.listen(_onVadSample);
+  }
+
+  /// VAD sample handler — amplitude-threshold only, no transcription.
+  /// Arms once the child has spoken at least once (so pre-speech room
+  /// noise/silence never triggers auto-stop), then auto-stops after
+  /// [_vadSilenceGrace] of continuous silence.
+  void _onVadSample(double amplitude) {
+    if (!_recording) return;
+
+    if (amplitude >= _vadSpeechThreshold) {
+      _vadHasSpokenOnce = true;
+      _vadSilenceStartedAt = null;
+      return;
+    }
+
+    if (!_vadHasSpokenOnce) return; // still waiting for the child to start
+
+    if (amplitude < _vadSilenceThreshold) {
+      _vadSilenceStartedAt ??= DateTime.now();
+      if (DateTime.now().difference(_vadSilenceStartedAt!) >= _vadSilenceGrace) {
+        // Short words: don't let VAD end the session before a minimum
+        // TOTAL listening duration has elapsed, even once the silence
+        // condition is individually satisfied — see
+        // _minListenDurationForShortWords' doc comment. Longer words are
+        // unaffected; this never fires for them.
+        if (_isShortWord && _recordingStartedAt != null) {
+          final elapsed = DateTime.now().difference(_recordingStartedAt!);
+          if (elapsed < _minListenDurationForShortWords) {
+            return; // keep listening — not enough total session time yet
+          }
+        }
+        _stopAndScore();
+      }
+    } else {
+      // Between the two thresholds — ambiguous, don't count as silence.
+      _vadSilenceStartedAt = null;
+    }
+  }
+
+  Future<void> _stopAndScore() async {
+    if (!_recording) return;
+    _autoStopTimer?.cancel();
+    _vadSub?.cancel();
+    _vadSub = null;
+    _waveCtrl.stop();
+    _waveCtrl.reset();
+    if (_recordingStartedAt != null) {
+      final totalListenMs = DateTime.now().difference(_recordingStartedAt!).inMilliseconds;
+      debugPrint('[VAD] word="${_currentWord.word}" isShortWord=$_isShortWord totalListenMs=$totalListenMs');
+    }
+    setState(() {
+      _recording = false;
+      _scoring   = true;
+    });
+
+    final lang     = AppState.language == 'sinhala' ? 'si' : 'en';
+    final gradeNum = AppState.grade == 'grade4' ? 4 : 3;
+    final result   = await HybridPronunciationScorer.stopAndScore(
+      word:          _currentWord.pKey,
+      lang:          lang,
+      gradeNum:      gradeNum,
+      sinhalaScript: _currentWord.word,
+    );
+
+    if (!mounted) return;
+    setState(() => _scoring = false);
+
+    // No speech detected — doesn't count toward PEPA/_attempt (no data was
+    // captured to score), but does count toward the fail-then-skip total,
+    // same as WRONG/ALMOST.
+    if (result.verdict == 'NO_SPEECH') {
+      BleCommandService.instance.send('LOUDER:$_bleLanguageCode');
+      setState(() {
+        _failCount++;
+        _lastResult = result;
+        _showResult = true;
+      });
+      _resultCtrl.forward(from: 0);
+      if (_failCount < _maxFailsBeforeSkip) {
+        Future.delayed(const Duration(milliseconds: 1800), () {
+          if (mounted) setState(() => _showResult = false);
+        });
+      } else {
+        // Fail cap reached on a NO_SPEECH attempt — this word may have zero
+        // scored attempts at all (e.g. all 4 fails were NO_SPEECH), so
+        // there'd otherwise be nothing to tally it as. Mirrors the
+        // WRONG/ALMOST path below, which records immediately on reaching
+        // the cap rather than waiting for the Skip tap.
+        _recordFinalResult(result);
+      }
+      // else: leave the overlay up with a Skip button — see _buildResultOverlay.
+      return;
+    }
+
+    // NOTE: NO_INTERNET used to be handled here (a "please check your
+    // connection" overlay). Removed — Sinhala's HybridPronunciationScorer
+    // now falls back to the offline DTW scorer instead of ever returning
+    // NO_INTERNET, so this branch is unreachable. See
+    // HybridPronunciationScorer.stopAndScore's Sinhala-branch doc comment.
+
+    // Fixed command keywords for the physical buddy speaker, decoupled
+    // from the on-screen result text below — same pattern as EduPlay's
+    // activity_screen.dart. OK = correct; ALMOST/WRONG = incorrect.
+    BleCommandService.instance.send(result.verdict == 'OK' ? 'PRAISE:$_bleLanguageCode' : 'RETRY:$_bleLanguageCode');
+
+    const scoreMap = {'OK': 0.9, 'ALMOST': 0.7, 'WRONG': 0.25};
+    _allAttempts.add({
+      'word':           _currentWord.word,
+      'phonemes':       _currentWord.phonemes.join(','),
+      'result':         result.verdict,
+      'attempt_number': _attempt + 1,
+      'dtw_score':      scoreMap[result.verdict] ?? 0.25,
+      // Only ever non-null for an English WRONG attempt — see
+      // HybridPronunciationScorer's parallel attempt-audio capture and
+      // PronunciationResult.audioPath's doc comment.
+      'audio_path':     result.audioPath,
+      // Decision Fusion raw signals (English only) — see
+      // PronunciationResult's doc comment. Null for Sinhala/energy-fallback.
+      'stt_strategy':   result.sttStrategy,
+      'dtw_distance':   result.dtwDistance,
+      'dtw_verdict':    result.dtwVerdict,
+      // What the recognizer actually heard, for "Last Session Review" — null
+      // whenever no transcript was available (NO_SPEECH, Sinhala/Gemini path).
+      'recognized_text': result.rawTranscript,
+    });
+
+    // Phonological substitution analysis — only meaningful for a genuine
+    // mismatch, and only when the scorer actually heard something.
+    if (result.verdict == 'WRONG' || result.verdict == 'ALMOST') {
+      final subs = await PhonemeSubstitutionAnalyzer.extract(
+        expectedPhonemes: _currentWord.phonemes,
+        rawTranscript:    result.rawTranscript,
+        language:         lang,
+        expectedWord:     _currentWord.word,
+      );
+      if (subs.isNotEmpty) {
+        _allSubstitutions.add((word: _currentWord.word, language: lang, substitutions: subs));
+      }
+    }
+
+    // Word Confusion Patterns — a full valid-word swap, checked
+    // regardless of verdict (an accepted phonetic-variant match, e.g.
+    // "pin" for "pen", never qualifies — see _detectWordConfusion).
+    // English-only: the "real word" sources (curriculum list +
+    // HybridPronunciationScorer.knownDistinctRealWords) are both English.
+    if (lang == 'en') {
+      final confusedWord = _detectWordConfusion(
+        recognized: result.rawTranscript,
+        expected: _currentWord.word,
+      );
+      debugPrint('[WordConfusion] expected="${_currentWord.word}" '
+          'recognized="${result.rawTranscript}" → ${confusedWord ?? '(no match — not a real-word confusion)'}');
+      if (confusedWord != null) {
+        _allWordConfusions.add((expectedWord: _currentWord.word, confusedWord: confusedWord, language: lang));
+      }
+    }
+
+    // ── Coaching ─────────────────────────────────────────────────────────────
+    final coaching = result.verdict == 'OK'
+        ? CoachingStrategy.forPass(lang)
+        : CoachingStrategy.forFail(
+            attemptNumber: _attempt + 1,
+            lang: lang,
+          );
+
+    setState(() {
+      if (result.verdict != 'OK') _failCount++;
+      _lastResult = result;
+      _showResult = true;
+      _coaching   = coaching;
+    });
+    // Reaching the fail cap no longer auto-advances anything — it just
+    // reveals a "Skip this word" button the child has to tap (see
+    // _buildResultOverlay). OK always lets the child continue (unchanged).
+    final canAdvance = result.verdict == 'OK' || _failCount >= _maxFailsBeforeSkip;
+    _resultCtrl.forward(from: 0);
+
+    if (canAdvance) {
+      _recordFinalResult(result);
+      // On final failed attempt: expand VMG + auto-play reference so child
+      // can see/hear the correct pronunciation before tapping Skip.
+      if (result.verdict != 'OK') {
+        if (coaching.autoExpandVMG) {
+          setState(() => _vmgExpanded = true);
+        }
+        if (coaching.playReferenceAudio) {
+          Future.delayed(const Duration(milliseconds: 600), () {
+            if (mounted && !_playing) _playReference();
+          });
+        }
+      }
+    } else {
+      setState(() => _attempt++);
+      // On attempt-2 fail: auto-play reference after overlay dismisses.
+      if (coaching.playReferenceAudio) {
+        Future.delayed(const Duration(milliseconds: 2100), () {
+          if (mounted && !_playing) _playReference();
+        });
+      }
+      Future.delayed(const Duration(milliseconds: 1800), () {
+        if (mounted) setState(() => _showResult = false);
+      });
+    }
+  }
+
+  void _recordFinalResult(PronunciationResult result) {
+    final best = _allAttempts
+        .where((a) => a['word'] == _currentWord.word)
+        .fold<String>('WRONG', (prev, a) {
+      final r = a['result'] as String;
+      if (r == 'OK') return 'OK';
+      if (r == 'ALMOST' && prev != 'OK') return 'ALMOST';
+      return prev;
+    });
+
+    if (best == 'OK') {
+      _correct++;
+      _totalXp += result.verdict == 'OK' ? result.xpEarned : 5;
+    } else if (best == 'ALMOST') {
+      _almost++;
+      _totalXp += 3;
+    } else {
+      _wrong++;
+    }
+  }
+
+  void _advance() {
+    _audioPlayer.stop();
+    setState(() => _playing = false);
+    if (_wordIndex < _totalWords - 1) {
+      setState(() {
+        _wordIndex++;
+        _attempt    = 0;
+        _failCount  = 0;
+        _showResult  = false;
+        _lastResult  = null;
+        _vmgExpanded = false;
+        _coaching    = null;
+      });
+    } else {
+      _finish();
+    }
+  }
+
+  Future<void> _finish() async {
+    _stopwatch.stop();
+    final hardPhonemes = <String>[];
+    for (final a in _allAttempts) {
+      if (a['result'] == 'WRONG') {
+        hardPhonemes.addAll((a['phonemes'] as String).split(','));
+      }
+    }
+    final counts = <String, int>{};
+    for (final p in hardPhonemes) {
+      counts[p] = (counts[p] ?? 0) + 1;
+    }
+    final top = (counts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .take(3)
+        .map((e) => e.key)
+        .toList();
+
+    // Persist session to SQLite so dashboard XP and streak are real.
+    try {
+      final sessionId = await SessionLogger.saveSession(
+        grade:           AppState.grade,
+        language:        AppState.language,
+        levelKey:        widget.args.levelKey,
+        levelName:       widget.args.levelName,
+        totalXp:         _totalXp,
+        durationSeconds: _stopwatch.elapsed.inSeconds,
+        correct:         _correct,
+        almost:          _almost,
+        wrong:           _wrong,
+        isAssignedPractice: widget.args.isAssignedPractice,
+        assignedPhoneme:    widget.args.assignedPhoneme,
+      );
+      await SessionLogger.saveWordAttempts(sessionId, _allAttempts);
+      // PEPA: log phoneme-level error data for parent analytics.
+      await SessionLogger.savePhonemeAttempts(
+        sessionId:    sessionId,
+        profileName:  AppState.name,
+        language:     AppState.language == 'sinhala' ? 'si' : 'en',
+        wordAttempts: _allAttempts,
+      );
+      debugPrint('[PEPA] saved sessionId=$sessionId profileName="${AppState.name}" '
+          'wordAttempts=${_allAttempts.length}');
+
+      // Phonological substitution patterns — one write per WRONG/ALMOST
+      // word that produced at least one detected substitution.
+      for (final entry in _allSubstitutions) {
+        await SessionLogger.savePhonemeSubstitutions(
+          sessionId:     sessionId,
+          profileName:   AppState.name,
+          word:          entry.word,
+          language:      entry.language,
+          substitutions: entry.substitutions,
+        );
+      }
+      debugPrint('[PEPA] saved ${_allSubstitutions.length} substitution-bearing '
+          'word attempts for sessionId=$sessionId');
+
+      // Word Confusion Patterns — one write per qualifying attempt.
+      for (final entry in _allWordConfusions) {
+        await SessionLogger.saveWordConfusion(
+          sessionId:    sessionId,
+          profileName:  AppState.name,
+          expectedWord: entry.expectedWord,
+          confusedWord: entry.confusedWord,
+          language:     entry.language,
+        );
+      }
+      debugPrint('[WordConfusion] saved ${_allWordConfusions.length} word-confusion '
+          'attempts for sessionId=$sessionId');
+
+      // Storage-cleanup policy for English attempt audio — keeps only the
+      // last 5 sessions' worth of WRONG-attempt WAVs, deleting older ones.
+      // Runs once per session (here, not per-attempt), after this
+      // session's own audio_path rows are already saved above.
+      await SessionLogger.cleanupOldAttemptAudio(profileName: AppState.name);
+    } catch (e, st) {
+      // Previously silent — a failure here meant PEPA data for this session
+      // never reached SQLite with no trace, making it look like the parent
+      // dashboard's query was broken when the real cause was a write that
+      // never happened.
+      debugPrint('[PEPA] FAILED to persist session for profileName="${AppState.name}": $e\n$st');
+    }
+
+    // Auto-assignment — system-triggered counterpart to the parent's
+    // manual "Assign Practice" button, same LocalStorage slot. Purely
+    // additive: doesn't touch scoring, PEPA logging, or the manual flow
+    // above. See _autoAssignPracticeIfNeeded's doc for the exact rules.
+    await _autoAssignPracticeIfNeeded();
+
+    if (!mounted) return;
+    Navigator.pushReplacementNamed(
+      context,
+      AppRouter.pronunciationComplete,
+      arguments: SessionCompleteArgs(
+        correct: _correct,
+        almost: _almost,
+        wrong: _wrong,
+        xpEarned: _totalXp,
+        durationSeconds: _stopwatch.elapsed.inSeconds,
+        levelName: widget.args.levelName,
+        hardPhonemes: top,
+        isAssignedPractice: widget.args.isAssignedPractice,
+      ),
+    );
+  }
+
+  /// System-triggered counterpart to the parent's manual "Assign Practice"
+  /// button (_assignPractice in parent_pronunciation_analytics_screen.dart)
+  /// — same LocalStorage.setAssignedPractice/getAssignedPractice slot,
+  /// just written automatically at session-end instead of by a parent tap.
+  ///
+  /// Rules:
+  /// - Skips entirely if every attempt in THIS session was OK (nothing to
+  ///   auto-assign for a clean session).
+  /// - "Worst result" means WRONG phonemes if this session had any, else
+  ///   ALMOST phonemes — never picks from OK attempts. Ranked by frequency
+  ///   within that tier, same top-by-count approach _finish() already uses
+  ///   for `hardPhonemes`/`top`, just scoped to this session only (not
+  ///   overall PEPA history) and including ALMOST as a fallback tier.
+  /// - Never overwrites an existing pending assignment (parent-assigned or
+  ///   a prior auto-assignment) — checked via getAssignedPractice
+  ///   immediately before writing.
+  Future<void> _autoAssignPracticeIfNeeded() async {
+    final wrongPhonemes = <String>[];
+    final almostPhonemes = <String>[];
+    for (final a in _allAttempts) {
+      final result = a['result'] as String;
+      if (result == 'WRONG') {
+        wrongPhonemes.addAll((a['phonemes'] as String).split(','));
+      } else if (result == 'ALMOST') {
+        almostPhonemes.addAll((a['phonemes'] as String).split(','));
+      }
+    }
+
+    final source = wrongPhonemes.isNotEmpty ? wrongPhonemes : almostPhonemes;
+    if (source.isEmpty) return; // all-correct session — nothing to auto-assign
+
+    final counts = <String, int>{};
+    for (final p in source) {
+      counts[p] = (counts[p] ?? 0) + 1;
+    }
+    final worstPhoneme = (counts.entries.toList()
+          ..sort((a, b) => b.value.compareTo(a.value)))
+        .first
+        .key;
+
+    final existing = await LocalStorage.getAssignedPractice(AppState.name);
+    if (existing != null) return; // manual or prior auto-assignment takes priority
+
+    await LocalStorage.setAssignedPractice(
+      profileName: AppState.name,
+      phoneme: worstPhoneme,
+      language: AppState.language == 'sinhala' ? 'si' : 'en',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.pageBg,
+      appBar: AppBar(
+        backgroundColor: AppColors.pronunciation,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.close_rounded, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+        title: Text(
+          widget.args.levelName,
+          style: GoogleFonts.nunito(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+          ),
+        ),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Text(
+                '${_wordIndex + 1} / $_totalWords',
+                style: GoogleFonts.nunito(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.9),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Stack(
+          children: [
+            _buildContent(),
+            if (_showResult && _lastResult != null) _buildResultOverlay(),
+            // Sinhala scoring goes over the network (Gemini) and can take a
+            // couple of seconds, so it gets its own indicator right at the
+            // mic button instead of this generic full-screen dim — see the
+            // hold-to-speak button below. English/DTW scoring is fast enough
+            // that this simple overlay is unnoticeable and stays as-is.
+            if (_scoring && AppState.language != 'sinhala')
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Color(0x55000000),
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.pronunciation,
+                      strokeWidth: 4,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContent() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        children: [
+          // Progress bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: (_wordIndex + 1) / _totalWords,
+              minHeight: 8,
+              backgroundColor: AppColors.divider,
+              valueColor:
+                  const AlwaysStoppedAnimation(AppColors.pronunciation),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Word card
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: const [
+                BoxShadow(
+                  color: AppColors.shadow,
+                  blurRadius: 16,
+                  offset: Offset(0, 6),
+                ),
+              ],
+            ),
+            child: Column(
+              children: [
+                Text(_currentWord.emoji,
+                    style: const TextStyle(fontSize: 72)),
+                const SizedBox(height: 12),
+                Text(
+                  _currentWord.word,
+                  style: GoogleFonts.nunito(
+                    fontSize: 42,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 6,
+                  children: _currentWord.phonemes.map((p) => Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primarySurface,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                          color: AppColors.pronunciation.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      '/$p/',
+                      style: GoogleFonts.nunito(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.pronunciation,
+                      ),
+                    ),
+                  )).toList(),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  _currentWord.meaning,
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                // ── Listen to reference button ────────────────────────────
+                GestureDetector(
+                  onTap: _playReference,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _playing
+                          ? AppColors.pronunciation
+                          : AppColors.primarySurface,
+                      borderRadius: BorderRadius.circular(30),
+                      border: Border.all(
+                        color: AppColors.pronunciation
+                            .withValues(alpha: _playing ? 0 : 0.4),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _playing
+                              ? Icons.stop_rounded
+                              : Icons.volume_up_rounded,
+                          size: 20,
+                          color: _playing
+                              ? Colors.white
+                              : AppColors.pronunciation,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _playing
+                              ? (AppState.language == 'sinhala'
+                                  ? 'නිවාරණය'
+                                  : 'Stop')
+                              : (AppState.language == 'sinhala'
+                                  ? 'ශ්‍රවණය කරන්න'
+                                  : 'Listen'),
+                          style: GoogleFonts.nunito(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w700,
+                            color: _playing
+                                ? Colors.white
+                                : AppColors.pronunciation,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ).animate().fadeIn().scale(
+                begin: const Offset(0.92, 0.92),
+                curve: Curves.easeOut,
+                duration: 300.ms,
+              ),
+
+          const SizedBox(height: 24),
+
+          // Collapsible mouth guide
+          GestureDetector(
+            onTap: () => setState(() => _vmgExpanded = !_vmgExpanded),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: const [
+                  BoxShadow(
+                    color: AppColors.shadow,
+                    blurRadius: 10,
+                    offset: Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    AppState.language == 'sinhala'
+                        ? 'කට හැඩගැසීමේ මාර්ගෝපදේශය'
+                        : 'Mouth shape guide',
+                    style: GoogleFonts.nunito(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  AnimatedRotation(
+                    turns: _vmgExpanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 250),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: AppColors.pronunciation,
+                      size: 26,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            child: _vmgExpanded
+                ? Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: PhonemeImageWidget(
+                      phonemes: _currentWord.phonemes,
+                      isPlaying: !_showResult && _vmgExpanded,
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+
+          const SizedBox(height: 24),
+
+          // Attempt dots
+          if (_attempt > 0)
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  '${AppState.language == 'sinhala' ? 'උත්සාහය' : 'Attempt'} ${_attempt + 1}/3',
+                  style: GoogleFonts.nunito(
+                    fontSize: 14,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+
+          const SizedBox(height: 16),
+
+          // Word reminder while recording
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOut,
+            child: _recording
+                ? Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.pronunciation.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(50),
+                      border: Border.all(
+                        color: AppColors.pronunciation.withValues(alpha: 0.4),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _currentWord.emoji,
+                          style: const TextStyle(fontSize: 22),
+                        ),
+                        const SizedBox(width: 10),
+                        Text(
+                          _currentWord.word,
+                          style: GoogleFonts.nunito(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            color: AppColors.pronunciation,
+                            letterSpacing: 1.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : const SizedBox.shrink(),
+          ),
+
+          // Live volume indicator (only while recording)
+          if (_recording)
+            StreamBuilder<double>(
+              stream: HybridPronunciationScorer.amplitudeStream,
+              builder: (context, snap) {
+                final level = snap.data ?? 0.0;
+                final loud  = level > 0.25;
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Column(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: level,
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.shade200,
+                          valueColor: AlwaysStoppedAnimation(
+                            loud ? AppColors.success : Colors.orange,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        loud
+                            ? (AppState.language == 'sinhala'
+                                ? 'හොඳයි! 🎤'
+                                : 'Good volume! 🎤')
+                            : (AppState.language == 'sinhala'
+                                ? 'ටිකක් ජෝරෙට් කතා කරන්! 📢'
+                                : 'Speak louder! 📢'),
+                        style: GoogleFonts.nunito(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: loud ? AppColors.success : Colors.orange,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+          // Waveform
+          AnimatedBuilder(
+            animation: _waveCtrl,
+            builder: (context, child) => _Waveform(
+              active: _recording,
+              progress: _waveCtrl.value,
+            ),
+          ),
+
+          const SizedBox(height: 20),
+
+          // Tap-to-speak button
+          GestureDetector(
+            onTap: _onMicTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 120,
+              height: 120,
+              decoration: BoxDecoration(
+                color: _recording
+                    ? AppColors.pronunciation
+                    : AppColors.primarySurface,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: AppColors.pronunciation,
+                  width: _recording ? 0 : 3,
+                ),
+                boxShadow: _recording
+                    ? [
+                        BoxShadow(
+                          color: AppColors.pronunciation.withValues(alpha: 0.4),
+                          blurRadius: 24,
+                          spreadRadius: 4,
+                        )
+                      ]
+                    : [],
+              ),
+              child: (_scoring && AppState.language == 'sinhala')
+                  ? Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: AppColors.pronunciation,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: GeminiSinhalaScorer.isRetrying,
+                          builder: (context, retrying, _) => Text(
+                            retrying
+                                ? 'මොහොතක් රැඳී සිටින්න...' // "Please wait..." (retrying)
+                                : 'පරීක්ෂා කරමින්...', // "Checking your pronunciation..."
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.pronunciation,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _recording ? Icons.stop_rounded : Icons.mic_rounded,
+                          size: 42,
+                          color: _recording
+                              ? Colors.white
+                              : AppColors.pronunciation,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _recording
+                              ? (AppState.language == 'sinhala' ? 'අහගෙන ඉන්නවා...' : 'Listening...')
+                              : (AppState.language == 'sinhala' ? 'ස්පර්ශ කර කතා කරන්' : 'Tap to speak'),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.nunito(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: _recording
+                                ? Colors.white
+                                : AppColors.pronunciation,
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ),
+
+          const SizedBox(height: 80),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStars(int stars) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: List.generate(3, (i) => Icon(
+        i < stars ? Icons.star_rounded : Icons.star_border_rounded,
+        color: i < stars ? Colors.amber : Colors.grey.shade300,
+        size: 40,
+      )),
+    );
+  }
+
+  Widget _buildResultOverlay() {
+    final result = _lastResult!;
+
+    // ── No speech detected — auto-dismisses to retry, or shows Skip once
+    // the combined fail count (WRONG + ALMOST + NO_SPEECH) hits the cap ──
+    if (result.verdict == 'NO_SPEECH') {
+      final showSkip = _failCount >= _maxFailsBeforeSkip;
+      return Positioned.fill(
+        child: GestureDetector(
+          onTap: showSkip ? _advance : null,
+          child: Container(
+            color: Colors.black.withValues(alpha: 0.45),
+            child: Center(
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.all(28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('🎤', style: TextStyle(fontSize: 64)),
+                    const SizedBox(height: 12),
+                    Text(
+                      AppState.language == 'sinhala'
+                          ? 'කරුණාකර වචනය කියන්න!'
+                          : 'Please say the word!',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.orange,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      AppState.language == 'sinhala'
+                          ? 'ශබ්දය අපට ඇසෙන්නේ නැත'
+                          : "We couldn't hear you",
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    if (showSkip) ...[
+                      const SizedBox(height: 20),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 28, vertical: 14),
+                        decoration: BoxDecoration(
+                          color: AppColors.wrong,
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        child: Text(
+                          AppState.language == 'sinhala' ? 'මෙය මඟහරින්න ⏭' : 'Skip this word ⏭',
+                          style: GoogleFonts.nunito(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ).animate().fadeIn(duration: 300.ms),
+      );
+    }
+
+    // ── Normal result ─────────────────────────────────────────────────────────
+    // NOTE: NO_INTERNET is no longer a reachable verdict here — Sinhala's
+    // HybridPronunciationScorer.stopAndScore now falls back to the offline
+    // DTW scorer instead of surfacing NO_INTERNET to the UI (see its doc
+    // comment). This overlay branch was removed along with that change.
+    final isOk     = result.verdict == 'OK';
+    final isAlmost = result.verdict == 'ALMOST';
+    final color = isOk
+        ? AppColors.success
+        : isAlmost
+            ? AppColors.almost
+            : AppColors.wrong;
+    final emoji = isOk ? '🎉' : isAlmost ? '👍' : '💪';
+    final label = isOk
+        ? (AppState.language == 'sinhala' ? 'නියමයි!' : 'Great Job!')
+        : isAlmost
+            ? (AppState.language == 'sinhala' ? 'ආසන්නයි!' : 'Almost!')
+            : (AppState.language == 'sinhala' ? 'හොඳ උත්සාහයක්! තව එකක්' : 'Nice try! One more time');
+
+    final canAdvance = isOk || _failCount >= _maxFailsBeforeSkip;
+    final isSkip = canAdvance && !isOk;
+
+    return Positioned.fill(
+      child: GestureDetector(
+        onTap: canAdvance ? _advance : null,
+        child: Container(
+          color: Colors.black.withValues(alpha: 0.45),
+          child: Center(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 32),
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(emoji, style: const TextStyle(fontSize: 64)),
+                  const SizedBox(height: 12),
+                  Text(
+                    label,
+                    style: GoogleFonts.nunito(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w900,
+                      color: color,
+                    ),
+                  ),
+                  // Coaching hint for non-passing results
+                  if (!isOk &&
+                      _coaching != null &&
+                      _coaching!.buddyMessage.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _coaching!.buddyMessage,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                  if (isOk || isAlmost) ...[
+                    const SizedBox(height: 10),
+                    _buildStars(result.stars),
+                  ],
+                  if (result.xpEarned > 0) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '+${result.xpEarned} XP',
+                      style: GoogleFonts.nunito(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
+                        color: isOk ? AppColors.pronunciation : AppColors.almost,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  if (canAdvance)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 28, vertical: 14),
+                      decoration: BoxDecoration(
+                        color: color,
+                        borderRadius: BorderRadius.circular(30),
+                      ),
+                      child: Text(
+                        isSkip
+                            ? (AppState.language == 'sinhala' ? 'මෙය මඟහරින්න ⏭' : 'Skip this word ⏭')
+                            : (_wordIndex < _totalWords - 1
+                                ? (AppState.language == 'sinhala' ? 'ඊළඟ →' : 'Next →')
+                                : (AppState.language == 'sinhala' ? 'අවසන් කරන්න ✓' : 'Finish ✓')),
+                        style: GoogleFonts.nunito(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ).animate().fadeIn(duration: 300.ms),
+    );
+  }
+}
+
+class _Waveform extends StatelessWidget {
+  final bool active;
+  final double progress;
+
+  const _Waveform({required this.active, required this.progress});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!active) {
+      return SizedBox(
+        height: 40,
+        child: Center(
+          child: Text(
+            AppState.language == 'sinhala'
+                ? 'බොත්තම ස්පර්ශ කර කතා කරන්'
+                : 'Hold the button and speak',
+            style: GoogleFonts.nunito(
+              fontSize: 13,
+              color: AppColors.textSecondary,
+            ),
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      height: 40,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: List.generate(20, (i) {
+          final h = 8 + 24 * (0.5 + 0.5 * sin((progress * 2 * pi) + i * 0.6)).abs();
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 80),
+            width: 4,
+            height: h,
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            decoration: BoxDecoration(
+              color: AppColors.pronunciation,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
