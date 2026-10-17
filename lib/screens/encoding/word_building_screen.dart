@@ -5,6 +5,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../data/encoding_data.dart';
 import '../../models/app_colors.dart';
+import '../../services/ble_command_service.dart';
 import '../../widgets/buddy_feedback_overlay.dart';
 
 // ── Tile data model ───────────────────────────────────────────────────────────
@@ -44,6 +45,11 @@ class _WordBuildingScreenState extends State<WordBuildingScreen> {
   bool _isSpeaking = false;
   int _idSeed = 0;
 
+  // widget.args.language already holds 'en'/'si' (see EncodingArgs) — just
+  // needs uppercasing to match the BLE command format, unlike other
+  // modules' language fields which needed a comparison/mapping.
+  String get _bleLanguageCode => widget.args.language.toUpperCase();
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +58,9 @@ class _WordBuildingScreenState extends State<WordBuildingScreen> {
       ..shuffle();
     _loadWord();
     _initTts().then((_) => _playAudio());
+    // Fire-and-forget, same as every other BleCommandService call site —
+    // no-ops safely if nothing's connected. Once per screen entry.
+    BleCommandService.instance.send('WELCOME:$_bleLanguageCode');
   }
 
   Future<void> _initTts() async {
@@ -118,6 +127,7 @@ class _WordBuildingScreenState extends State<WordBuildingScreen> {
   void _onCheck() {
     if (_placedIds.length < _letters.length) {
       _attemptCount++;
+      BleCommandService.instance.send('RETRY:$_bleLanguageCode');
       setState(() {
         _overlayCorrect = false;
         _isThirdAttempt = _attemptCount >= 3;
@@ -125,6 +135,7 @@ class _WordBuildingScreenState extends State<WordBuildingScreen> {
       });
       return;
     }
+    BleCommandService.instance.send('PRAISE:$_bleLanguageCode');
     setState(() {
       _totalXp += 10;
       _overlayCorrect = true;

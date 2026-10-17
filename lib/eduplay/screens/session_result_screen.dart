@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/app_colors.dart';
+import '../../services/ble_command_service.dart';
 import '../feature_builder.dart';
 
 const _kTextPrimary = Color(0xFF1A1A1A);
@@ -9,10 +10,28 @@ const _kOrange = Color(0xFFE67E22);
 const _kAmber = Color(0xFFF39C12);
 
 /// Route: '/eduplay/result'. Args: EduPlaySessionResult result.
-class SessionResultScreen extends StatelessWidget {
+class SessionResultScreen extends StatefulWidget {
   final EduPlaySessionResult result;
 
   const SessionResultScreen({super.key, required this.result});
+
+  @override
+  State<SessionResultScreen> createState() => _SessionResultScreenState();
+}
+
+class _SessionResultScreenState extends State<SessionResultScreen> {
+  EduPlaySessionResult get result => widget.result;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fire-and-forget, same as every other BleCommandService call site —
+    // no-ops safely if nothing's connected. result.language holds
+    // 'Sinhala'/'English' (populated from ActivityScreen.widget.language,
+    // same field activity_screen.dart's _bleLanguageCode already maps).
+    final languageCode = result.language == 'Sinhala' ? 'SI' : 'EN';
+    BleCommandService.instance.send('SESSION_END:$languageCode');
+  }
 
   @override
   Widget build(BuildContext context) {

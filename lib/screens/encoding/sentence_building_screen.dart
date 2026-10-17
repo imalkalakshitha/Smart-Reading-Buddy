@@ -5,6 +5,7 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../data/encoding_data.dart';
 import '../../models/app_colors.dart';
+import '../../services/ble_command_service.dart';
 import '../../widgets/buddy_feedback_overlay.dart';
 
 // ── Data model ────────────────────────────────────────────────────────────────
@@ -48,6 +49,11 @@ class _SentenceBuildingScreenState extends State<SentenceBuildingScreen> {
   late final AudioPlayer _player;
   int _idSeed = 0;
 
+  // widget.args.language already holds 'en'/'si' (see EncodingArgs) — just
+  // needs uppercasing to match the BLE command format, unlike other
+  // modules' language fields which needed a comparison/mapping.
+  String get _bleLanguageCode => widget.args.language.toUpperCase();
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +62,7 @@ class _SentenceBuildingScreenState extends State<SentenceBuildingScreen> {
         sentenceData[widget.args.sentenceKey] ?? ['I eat rice'])
       ..shuffle();
     _loadSentence();
+    BleCommandService.instance.send('WELCOME:$_bleLanguageCode');
   }
 
   @override
@@ -118,6 +125,7 @@ class _SentenceBuildingScreenState extends State<SentenceBuildingScreen> {
     if (_placedIds.length + _lockedBoxes.length <
         _correctWords.length) {
       // Not all boxes filled
+      BleCommandService.instance.send('RETRY:$_bleLanguageCode');
       setState(() {
         _overlayCorrect = false;
         _attemptCount++;
@@ -157,6 +165,7 @@ class _SentenceBuildingScreenState extends State<SentenceBuildingScreen> {
     }
 
     _attemptCount++;
+    BleCommandService.instance.send(allCorrect ? 'PRAISE:$_bleLanguageCode' : 'RETRY:$_bleLanguageCode');
 
     setState(() {
       _lockedBoxes = newLocked;

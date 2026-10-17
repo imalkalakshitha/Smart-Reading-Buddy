@@ -9,6 +9,7 @@ import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../services/character_model_service.dart';
 import '../../services/free_drawing_debug_config.dart';
+import '../../services/ble_command_service.dart';
 import '../../services/free_drawing_recognizer.dart';
 import '../../services/scribble_guard.dart';
 import '../../widgets/free_drawing_canvas.dart';
@@ -65,13 +66,14 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
   bool _ttsReady = false;
 
   bool get _isSinhala => AppState.language == 'sinhala';
+  String get _bleLanguageCode => _isSinhala ? 'SI' : 'EN';
   String get _currentTarget => _targets[_targetIndex];
   Color get _currentColor => _kLetterColors[_targetIndex % _kLetterColors.length];
 
   @override
   void initState() {
     super.initState();
-    _tts = FlutterTts();
+       _tts = FlutterTts();
     _initTts();
     _loadTargets();
   }
@@ -177,6 +179,7 @@ class _FreeDrawingLetterLevelScreenState extends State<FreeDrawingLetterLevelScr
       );
 
       if (!mounted) return;
+      BleCommandService.instance.send(evaluation.accepted ? 'PRAISE:$_bleLanguageCode' : 'RETRY:$_bleLanguageCode');
       setState(() {
         _isChecking = false;
         _lastEvaluation = evaluation;

@@ -1619,57 +1619,79 @@ class _LastSessionReviewSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final grade = (session['grade'] as String?) == 'grade4' ? 'Grade 4' : 'Grade 3';
+    final grade =
+        (session['grade'] as String?) == 'grade4' ? 'Grade 4' : 'Grade 3';
     final dateLabel = _formatDate(session['date'] as String?);
     final levelName = session['level_name'] as String?;
 
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            Text(
-              'Last Session Review',
-              style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              [dateLabel, grade, if (levelName != null) levelName].where((s) => s.isNotEmpty).join(' · '),
-              style: GoogleFonts.nunito(fontSize: 12.5, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            if (attempts.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Center(
-                  child: Text(
-                    'No word attempts recorded for this session.',
-                    style: GoogleFonts.nunito(fontSize: 13, color: AppColors.textSecondary),
+      child: FractionallySizedBox(
+        heightFactor: 0.90,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: AppColors.divider,
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
-              )
-            else
-              for (final attempt in attempts)
-                _LastSessionAttemptRow(
-                  attempt: attempt,
-                  grade: session['grade'] as String?,
-                  onListen: onListen,
+              ),
+              Text(
+                'Last Session Review',
+                style: GoogleFonts.nunito(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textPrimary,
                 ),
-          ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                [
+                  dateLabel,
+                  grade,
+                  if (levelName != null) levelName,
+                ].where((s) => s.isNotEmpty).join(' · '),
+                style: GoogleFonts.nunito(
+                  fontSize: 12.5,
+                  color: AppColors.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: attempts.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No word attempts recorded for this session.',
+                          style: GoogleFonts.nunito(
+                            fontSize: 13,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: EdgeInsets.zero,
+                        itemCount: attempts.length,
+                        itemBuilder: (context, index) {
+                          final attempt = attempts[index];
+
+                          return _LastSessionAttemptRow(
+                            attempt: attempt,
+                            grade: session['grade'] as String?,
+                            onListen: onListen,
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
