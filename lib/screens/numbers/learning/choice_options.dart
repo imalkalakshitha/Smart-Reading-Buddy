@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'learning_widgets.dart';
 
-/// Up to 4 big number options. A wrong pick turns soft orange and can't be
-/// picked again; the right pick (or the revealed answer) turns green.
+/// Up to 4 big number options. A wrong pick is marked softly (peach fill,
+/// darker orange border, 🔄, a gentle shake) and resets after
+/// [kWrongResetDelay] so the child can try again; the right pick (or the
+/// revealed answer) turns green.
 class ChoiceOptions extends StatefulWidget {
   final List<int> options;
   final int answer;
@@ -25,8 +28,7 @@ class ChoiceOptions extends StatefulWidget {
   State<ChoiceOptions> createState() => _ChoiceOptionsState();
 }
 
-class _ChoiceOptionsState extends State<ChoiceOptions> {
-  final Set<int> _wrong = {};
+class _ChoiceOptionsState extends State<ChoiceOptions> with WrongPickReset<ChoiceOptions> {
   int? _correct;
 
   @override
@@ -39,15 +41,39 @@ class _ChoiceOptionsState extends State<ChoiceOptions> {
             fontSize: widget.fontSize,
             look: o == _correct || (widget.revealed && o == widget.answer)
                 ? OptionLook.correct
-                : (_wrong.contains(o) ? OptionLook.wrong : OptionLook.normal),
-            onTap: widget.enabled && _correct == null && !_wrong.contains(o)
+                : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
+            onTap: widget.enabled && _correct == null && !isMarkedWrong(o)
                 ? () {
                     final ok = widget.onSubmit(o);
-                    setState(() => ok ? _correct = o : _wrong.add(o));
+                    ok ? setState(() => _correct = o) : markWrong(o);
                   }
                 : null,
           ),
       ],
     );
+  }
+}
+
+/// Marks a wrong option for [kWrongResetDelay], then clears it so it looks
+/// (and taps) like a normal option again.
+mixin WrongPickReset<T extends StatefulWidget> on State<T> {
+  final Set<int> _wrong = {};
+  final List<Timer> _wrongTimers = [];
+
+  bool isMarkedWrong(int option) => _wrong.contains(option);
+
+  void markWrong(int option) {
+    setState(() => _wrong.add(option));
+    _wrongTimers.add(Timer(kWrongResetDelay, () {
+      if (mounted) setState(() => _wrong.remove(option));
+    }));
+  }
+
+  @override
+  void dispose() {
+    for (final t in _wrongTimers) {
+      t.cancel();
+    }
+    super.dispose();
   }
 }

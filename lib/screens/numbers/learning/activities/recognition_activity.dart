@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/app_colors.dart';
 import '../../../../services/numbers/number_question.dart';
+import '../choice_options.dart' show WrongPickReset;
 import '../learning_widgets.dart';
 
 /// Recognition — hear the number, tap it. The number is never shown in the
@@ -27,13 +28,12 @@ class RecognitionActivity extends StatefulWidget {
   State<RecognitionActivity> createState() => _RecognitionActivityState();
 }
 
-class _RecognitionActivityState extends State<RecognitionActivity> {
-  final Set<int> _wrong = {};
+class _RecognitionActivityState extends State<RecognitionActivity>
+    with WrongPickReset<RecognitionActivity>, WrongCheckReset<RecognitionActivity> {
   int? _correct;
 
   // Colouring step.
   final Set<int> _coloured = {};
-  bool? _colourResult;
 
   bool get _colouring => widget.question.colourQuantity && (_correct != null || widget.revealed);
 
@@ -41,7 +41,7 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
     if (option == _correct || (widget.revealed && option == widget.question.answer)) {
       return OptionLook.correct;
     }
-    if (_wrong.contains(option)) return OptionLook.wrong;
+    if (isMarkedWrong(option)) return OptionLook.wrong;
     return OptionLook.normal;
   }
 
@@ -61,10 +61,10 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
                 label: '$o',
                 look: _lookFor(o),
                 fontSize: _colouring ? 32 : 44,
-                onTap: widget.enabled && _correct == null && !_wrong.contains(o)
+                onTap: widget.enabled && _correct == null && !isMarkedWrong(o)
                     ? () {
                         final ok = widget.onSubmit(o);
-                        setState(() => ok ? _correct = o : _wrong.add(o));
+                        ok ? setState(() => _correct = o) : markWrong(o);
                       }
                     : null,
               ),
@@ -83,10 +83,10 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
             PillButton(
               label: 'Check ✓',
               color: AppColors.pronunciation,
-              onTap: widget.enabled && _colourResult == null
+              onTap: widget.enabled && canCheck
                   ? () {
                       final ok = widget.onSubmit(QuantityResponse(_coloured.length));
-                      setState(() => _colourResult = ok);
+                      ok ? setState(() => checkedCorrect = true) : showWrong();
                     }
                   : null,
             ),
@@ -98,12 +98,9 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
   /// A ten-frame of stars (2 rows of 5); tap to colour / un-colour.
   Widget _colourBoard() {
     final answer = widget.question.answer;
-    final editable = widget.enabled && _colourResult != true && !widget.revealed;
-    final border = switch (_colourResult) {
-      true => LearningColors.correct,
-      false => LearningColors.tryAgain,
-      null => AppColors.divider,
-    };
+    final editable = widget.enabled && !checkedCorrect && !widget.revealed;
+    final wrong = wrongShown && !widget.revealed;
+    final border = checkHighlight ?? AppColors.divider;
     Widget cell(int i) {
       final on = widget.revealed ? i < answer : _coloured.contains(i);
       return Expanded(
@@ -111,7 +108,7 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
           onTap: editable
               ? () => setState(() {
                     on ? _coloured.remove(i) : _coloured.add(i);
-                    _colourResult = null;
+                    changed();
                   })
               : null,
           child: AspectRatio(
@@ -137,12 +134,12 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
     }
 
     const perRow = RecognitionQuestion.quantitySlots ~/ 2;
-    return Container(
+    return wrongMarked(wrong: wrong, Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: wrong ? LearningColors.wrongFill : Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: border, width: _colourResult == null ? 1.5 : 3),
+        border: Border.all(color: border, width: checkHighlight == null ? 1.5 : 3),
       ),
       child: Column(
         children: [
@@ -150,6 +147,6 @@ class _RecognitionActivityState extends State<RecognitionActivity> {
           Row(children: [for (var i = perRow; i < perRow * 2; i++) cell(i)]),
         ],
       ),
-    );
+    ));
   }
 }

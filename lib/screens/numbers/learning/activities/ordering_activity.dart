@@ -24,10 +24,9 @@ class OrderingActivity extends StatefulWidget {
   State<OrderingActivity> createState() => _OrderingActivityState();
 }
 
-class _OrderingActivityState extends State<OrderingActivity> {
+class _OrderingActivityState extends State<OrderingActivity> with WrongCheckReset<OrderingActivity> {
   /// Item index loaded into each car, or null.
   late final List<int?> _cars = List.filled(widget.question.items.length, null);
-  bool? _lastResult;
 
   bool get _full => _cars.every((c) => c != null);
 
@@ -36,7 +35,7 @@ class _OrderingActivityState extends State<OrderingActivity> {
     if (empty < 0) return;
     setState(() {
       _cars[empty] = itemIndex;
-      _lastResult = null;
+      changed();
     });
   }
 
@@ -44,26 +43,22 @@ class _OrderingActivityState extends State<OrderingActivity> {
     if (_cars[car] == null) return;
     setState(() {
       _cars[car] = null;
-      _lastResult = null;
+      changed();
     });
   }
 
   void _check() {
     final order = [for (final c in _cars) widget.question.items[c!]];
     final ok = widget.onSubmit(order);
-    setState(() => _lastResult = ok);
+    ok ? setState(() => checkedCorrect = true) : showWrong();
   }
 
   @override
   Widget build(BuildContext context) {
     final q = widget.question;
     final loaded = _cars.whereType<int>().toSet();
-    final highlight = switch (_lastResult) {
-      true => LearningColors.correct,
-      false => LearningColors.tryAgain,
-      null => null,
-    };
-    final editable = widget.enabled && _lastResult != true;
+    final highlight = checkHighlight;
+    final editable = widget.enabled && !checkedCorrect;
     final answer = q.answer;
     final small = Text('smallest',
         style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textSecondary));
@@ -72,7 +67,7 @@ class _OrderingActivityState extends State<OrderingActivity> {
 
     return Column(
       children: [
-        Row(
+        wrongMarked(wrong: wrongShown && !widget.revealed, Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             const Text('🚂', style: TextStyle(fontSize: 44)),
@@ -85,13 +80,14 @@ class _OrderingActivityState extends State<OrderingActivity> {
                       ? '${answer[i]}'
                       : (_cars[i] == null ? null : '${q.items[_cars[i]!]}'),
                   highlight: widget.revealed ? LearningColors.correct : highlight,
+                  wrong: wrongShown && !widget.revealed,
                   onTap: editable ? () => _unload(i) : null,
                 ),
               ),
               if (i < q.items.length - 1) const SizedBox(width: 6),
             ],
           ],
-        ),
+        )),
         const SizedBox(height: 6),
         Padding(
           padding: const EdgeInsets.only(left: 50),
@@ -120,7 +116,7 @@ class _OrderingActivityState extends State<OrderingActivity> {
           PillButton(
             label: 'Check ✓',
             color: AppColors.pronunciation,
-            onTap: editable && _full && _lastResult == null ? _check : null,
+            onTap: editable && _full && canCheck ? _check : null,
           ),
       ],
     );

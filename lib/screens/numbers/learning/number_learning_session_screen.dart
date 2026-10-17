@@ -60,6 +60,11 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
   _Feedback _feedback = _Feedback.none;
   DateTime _questionStart = DateTime.now();
   Timer? _advanceTimer;
+
+  /// Inline feedback card under the question (see FeedbackSlot).
+  FeedbackMessage? _card;
+  int _cardId = 0;
+  Timer? _cardTimer;
   bool _finished = false;
 
   NumberQuestion get _q => _questions![_index];
@@ -73,6 +78,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
   @override
   void dispose() {
     _advanceTimer?.cancel();
+    _cardTimer?.cancel();
     _speaker.stop();
     _replaySignal.dispose();
     super.dispose();
@@ -95,10 +101,24 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     }
   }
 
+  /// Shows the inline feedback card; it hides itself after
+  /// [kWrongResetDelay] unless [autoHide] is false.
+  void _showCard(String emoji, String text, FeedbackTone tone, {bool autoHide = true}) {
+    _cardTimer?.cancel();
+    setState(() => _card = FeedbackMessage(++_cardId, emoji, text, tone));
+    if (autoHide) {
+      _cardTimer = Timer(kWrongResetDelay, () {
+        if (mounted) setState(() => _card = null);
+      });
+    }
+  }
+
   void _startQuestion() {
+    _cardTimer?.cancel();
     setState(() {
       _tries = 0;
       _wrongs = 0;
+      _card = null;
       _feedback = _Feedback.none;
       _questionStart = DateTime.now();
     });
@@ -114,6 +134,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
         // First step of a two-step question (find, then colour) — no
         // point yet, and it doesn't count against the child.
         setState(() => _feedback = _Feedback.step);
+        _showCard('⭐', 'Great! ${_q.followUpPrompt ?? ''}', FeedbackTone.good);
         _speaker.say(_q.followUpSpeech ?? 'Great!');
         return true;
       case AnswerResult.correct:
@@ -122,6 +143,8 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
         _score += point;
         _save(correct: true, score: point);
         setState(() => _feedback = _Feedback.correct);
+        // Stays up until the next question (1.5 s), so no auto-hide.
+        _showCard('🎉', 'Great job!', FeedbackTone.good, autoHide: false);
         _speaker.say('Great job!');
         _advanceTimer = Timer(const Duration(milliseconds: 1500), _next);
         return true;
@@ -129,10 +152,15 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
         _wrongs++;
         if (_wrongs < _maxTries) {
           setState(() => _feedback = _Feedback.tryAgain);
+          _showCard('💪', "Let's try again!", FeedbackTone.tryAgain);
           _speaker.say("Let's try again!");
         } else {
           _save(correct: false, score: 0);
-          setState(() => _feedback = _Feedback.revealed);
+          _cardTimer?.cancel();
+          setState(() {
+            _card = null;
+            _feedback = _Feedback.revealed;
+          });
           _speaker.say('The answer is ${NumberAnswerCheck.answerText(_q)}');
         }
         return false;
@@ -212,47 +240,60 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     final total = _questions!.length;
     return Column(
       children: [
+        // Fixed top: progress, the question, and the feedback card slot.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: (_index + 1) / total,
+                        minHeight: 10,
+                        backgroundColor: AppColors.divider,
+                        valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${_index + 1} / $total',
+                    style: GoogleFonts.nunito(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              InstructionBar(prompt: _q.prompt, onReplay: _replay),
+              FeedbackSlot(message: _card),
+            ],
+          ),
+        ),
+        // The activity, centred vertically in the space left (scrolls when
+        // it's taller than that), so there's no big empty gap at the bottom.
         Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: LinearProgressIndicator(
-                          value: (_index + 1) / total,
-                          minHeight: 10,
-                          backgroundColor: AppColors.divider,
-                          valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      '${_index + 1} / $total',
-                      style: GoogleFonts.nunito(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
+          child: LayoutBuilder(
+            builder: (context, box) => SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: (box.maxHeight - 20).clamp(0.0, double.infinity)),
+                child: Center(
+                  child: KeyedSubtree(
+                    key: ValueKey(_index),
+                    child: _activity(_q),
+                  ).animate(key: ValueKey('a$_index')).fadeIn(duration: 250.ms),
                 ),
-                const SizedBox(height: 18),
-                InstructionBar(prompt: _q.prompt, onReplay: _replay),
-                const SizedBox(height: 28),
-                KeyedSubtree(
-                  key: ValueKey(_index),
-                  child: _activity(_q),
-                ).animate(key: ValueKey('a$_index')).fadeIn(duration: 250.ms),
-              ],
+              ),
             ),
           ),
         ),
-        _feedbackBar(),
+        if (_feedback == _Feedback.revealed) _revealBar(),
       ],
     );
   }
@@ -293,41 +334,26 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     };
   }
 
-  Widget _feedbackBar() {
-    if (_feedback == _Feedback.none) return const SizedBox(height: 8);
-    final (bg, fg, emoji, text) = switch (_feedback) {
-      _Feedback.correct => (LearningColors.correctSurface, LearningColors.correct, '🎉', 'Great job!'),
-      _Feedback.tryAgain => (LearningColors.tryAgainSurface, LearningColors.tryAgain, '💪', "Let's try again!"),
-      _Feedback.step => (
-          LearningColors.correctSurface,
-          LearningColors.correct,
-          '⭐',
-          'Great! ${_q.followUpPrompt ?? ''}'
-        ),
-      _ => (
-          LearningColors.tryAgainSurface,
-          LearningColors.tryAgain,
-          '💡',
-          'The answer is ${NumberAnswerCheck.answerText(_q)}. Let\'s keep going!'
-        ),
-    };
+  /// After the last try: the answer, shown gently, with Next. The only
+  /// feedback left at the bottom — it needs the button.
+  Widget _revealBar() {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      decoration: BoxDecoration(
-        color: bg,
-        border: Border(top: BorderSide(color: fg, width: 3)),
+      decoration: const BoxDecoration(
+        color: LearningColors.tryAgainSurface,
+        border: Border(top: BorderSide(color: LearningColors.tryAgain, width: 3)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
-              Text(emoji, style: const TextStyle(fontSize: 32)),
+              const Text('💡', style: TextStyle(fontSize: 32)),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  text,
+                  "The answer is ${NumberAnswerCheck.answerText(_q)}. Let's keep going!",
                   style: GoogleFonts.nunito(
                     fontSize: 20,
                     fontWeight: FontWeight.w800,
@@ -337,13 +363,11 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
               ),
             ],
           ),
-          if (_feedback == _Feedback.revealed) ...[
-            const SizedBox(height: 14),
-            PillButton(label: 'Next →', color: LearningColors.accent, onTap: _next),
-          ],
+          const SizedBox(height: 14),
+          PillButton(label: 'Next →', color: LearningColors.accent, onTap: _next),
         ],
       ),
-    ).animate(key: ValueKey('f$_index$_feedback$_tries')).slideY(begin: 0.4, duration: 200.ms).fadeIn();
+    ).animate(key: ValueKey('r$_index')).slideY(begin: 0.4, duration: 200.ms).fadeIn();
   }
 
   Widget _summary() => SessionSummaryView(

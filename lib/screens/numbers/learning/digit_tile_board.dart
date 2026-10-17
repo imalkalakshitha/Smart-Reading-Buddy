@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../models/app_colors.dart';
@@ -36,8 +37,10 @@ class DigitTileBoard extends StatelessWidget {
 
 /// Answer slots + tiles (digits or letters). Tap a tile to place it in the
 /// next empty slot; tap a slot to take its tile back; Check submits the
-/// labels in slot order. After a wrong answer Check stays off until the
-/// child changes something.
+/// labels in slot order. A wrong answer shakes the row and marks the slots
+/// (peach fill, darker orange border, 🔄) for [kWrongResetDelay], then the
+/// marking clears; the tiles stay so the child can fix them, and Check stays
+/// off until something changes.
 ///
 /// Slot sizing follows the Encoding module's Word Building tray: slots
 /// shrink to fit the row (up to 64 px), rounded 14 px corners. [gapsAfter]
@@ -67,7 +70,22 @@ class TileBoard extends StatefulWidget {
 class _TileBoardState extends State<TileBoard> {
   /// Tile index placed in each slot, or null.
   late final List<int?> _slots = List.filled(widget.slotCount, null);
-  bool? _lastResult;
+  bool _correct = false;
+  bool _wrongShown = false;
+  bool _lockedUntilChange = false;
+  Timer? _wrongTimer;
+
+  @override
+  void dispose() {
+    _wrongTimer?.cancel();
+    super.dispose();
+  }
+
+  void _changed() {
+    _wrongTimer?.cancel();
+    _wrongShown = false;
+    _lockedUntilChange = false;
+  }
 
   bool get _full => _slots.every((s) => s != null);
 
@@ -76,7 +94,7 @@ class _TileBoardState extends State<TileBoard> {
     if (empty < 0) return;
     setState(() {
       _slots[empty] = tileIndex;
-      _lastResult = null;
+      _changed();
     });
   }
 
@@ -84,26 +102,33 @@ class _TileBoardState extends State<TileBoard> {
     if (_slots[slot] == null) return;
     setState(() {
       _slots[slot] = null;
-      _lastResult = null;
+      _changed();
     });
   }
 
   void _check() {
     final labels = [for (final s in _slots) widget.tiles[s!]];
     final ok = widget.onSubmit(labels);
-    setState(() => _lastResult = ok);
+    if (ok) {
+      setState(() => _correct = true);
+      return;
+    }
+    setState(() => _wrongShown = true);
+    _wrongTimer = Timer(kWrongResetDelay, () {
+      if (!mounted) return;
+      setState(() {
+        _wrongShown = false;
+        _lockedUntilChange = true;
+      });
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final reveal = widget.reveal;
     final used = _slots.whereType<int>().toSet();
-    final slotHighlight = switch (_lastResult) {
-      true => LearningColors.correct,
-      false => LearningColors.tryAgain,
-      null => null,
-    };
-    final editable = widget.enabled && _lastResult != true;
+    final slotHighlight = _correct ? LearningColors.correct : (_wrongShown ? LearningColors.wrongBorder : null);
+    final editable = widget.enabled && !_correct;
     final n = widget.slotCount;
 
     return Column(
@@ -113,7 +138,7 @@ class _TileBoardState extends State<TileBoard> {
           const gap = 18.0;
           final gaps = widget.gapsAfter.length;
           final size = ((constraints.maxWidth - (n - 1) * spacing - gaps * gap) / n).clamp(26.0, 64.0);
-          return Row(
+          final row = Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               for (var i = 0; i < n; i++) ...[
@@ -122,6 +147,11 @@ class _TileBoardState extends State<TileBoard> {
               ],
             ],
           );
+          if (!_wrongShown) return row;
+          return gentleShake(Stack(
+            clipBehavior: Clip.none,
+            children: [row, const Positioned(top: -12, right: 0, child: RetryBadge())],
+          ));
         }),
         const SizedBox(height: 32),
         Wrap(
@@ -149,7 +179,7 @@ class _TileBoardState extends State<TileBoard> {
           PillButton(
             label: 'Check ✓',
             color: AppColors.pronunciation,
-            onTap: editable && _full && _lastResult == null ? _check : null,
+            onTap: editable && _full && !_wrongShown && !_lockedUntilChange ? _check : null,
           ),
       ],
     );
@@ -159,6 +189,7 @@ class _TileBoardState extends State<TileBoard> {
     final label = reveal != null ? reveal[i] : (_slots[i] == null ? null : widget.tiles[_slots[i]!]);
     final border = reveal != null ? LearningColors.correct : highlight;
     final filled = label != null;
+    final wrong = reveal == null && _wrongShown;
     return GestureDetector(
       onTap: editable ? () => _clearSlot(i) : null,
       child: AnimatedContainer(
@@ -167,7 +198,9 @@ class _TileBoardState extends State<TileBoard> {
         height: size * 1.15,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: filled ? AppColors.primary.withValues(alpha: 0.10) : Colors.white,
+          color: wrong
+              ? LearningColors.wrongFill
+              : (filled ? AppColors.primary.withValues(alpha: 0.10) : Colors.white),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: border ?? (filled ? AppColors.primary : AppColors.primaryLight),

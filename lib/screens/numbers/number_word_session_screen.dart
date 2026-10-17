@@ -248,6 +248,23 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // The result popup sits over the WHOLE Scaffold (app bar, body and the
+    // system-inset area below it), not inside the body: a Stack in the body
+    // only gets the scroll view's shrink-wrapped height, so the dim used to
+    // stop ~70% down the screen. The transparent Material gives the popup's
+    // text a Material ancestor outside the Scaffold.
+    return Material(
+      type: MaterialType.transparency,
+      child: Stack(
+        children: [
+          _buildScaffold(),
+          if (!_finished && _showResult && _verdict != null) _buildResultOverlay(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScaffold() {
     return Scaffold(
       backgroundColor: AppColors.pageBg,
       appBar: AppBar(
@@ -267,14 +284,7 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
         ),
       ),
       body: SafeArea(
-        child: _finished
-            ? _buildSummary()
-            : Stack(
-                children: [
-                  _buildContent(),
-                  if (_showResult && _verdict != null) _buildResultOverlay(),
-                ],
-              ),
+        child: _finished ? _buildSummary() : _buildContent(),
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../../models/app_colors.dart';
 import '../../../../services/numbers/number_question.dart';
+import '../choice_options.dart' show WrongPickReset;
 import '../learning_widgets.dart';
 
 /// Patterns — find the missing number in a rule-based sequence.
@@ -23,8 +24,8 @@ class PatternActivity extends StatefulWidget {
   State<PatternActivity> createState() => _PatternActivityState();
 }
 
-class _PatternActivityState extends State<PatternActivity> {
-  final Set<int> _wrong = {};
+class _PatternActivityState extends State<PatternActivity>
+    with WrongPickReset<PatternActivity> {
   int? _correct;
 
   @override
@@ -53,11 +54,11 @@ class _PatternActivityState extends State<PatternActivity> {
                 fontSize: 40,
                 look: o == _correct || (widget.revealed && o == q.answer)
                     ? OptionLook.correct
-                    : (_wrong.contains(o) ? OptionLook.wrong : OptionLook.normal),
-                onTap: widget.enabled && _correct == null && !_wrong.contains(o)
+                    : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
+                onTap: widget.enabled && _correct == null && !isMarkedWrong(o)
                     ? () {
                         final ok = widget.onSubmit(o);
-                        setState(() => ok ? _correct = o : _wrong.add(o));
+                        ok ? setState(() => _correct = o) : markWrong(o);
                       }
                     : null,
               ),
