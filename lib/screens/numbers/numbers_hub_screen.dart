@@ -9,9 +9,9 @@ import 'number_word_session_screen.dart';
 import 'rapid_digit_naming_screen.dart';
 
 /// Numbers — a shared, cross-module feature reached only from the Home
-/// screen (AppRouter.numbers). ENGLISH ONLY. One section per team
-/// function; only Pronunciation has activities so far, the others show
-/// "Coming soon".
+/// screen (AppRouter.numbers). ENGLISH ONLY. Sections: Pronunciation and
+/// Number Learning (live), then EduPlay + Encoding and Reading ("Coming
+/// soon").
 class NumbersHubScreen extends StatelessWidget {
   const NumbersHubScreen({super.key});
 
@@ -122,12 +122,6 @@ class NumbersHubScreen extends StatelessWidget {
               title: 'EduPlay + Encoding',
               color: Color(0xFF7B61FF),
             ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.3),
-            const SizedBox(height: 14),
-            const _ComingSoonSection(
-              emoji: '✏️',
-              title: 'Writing',
-              color: AppColors.writing,
-            ).animate(delay: 560.ms).fadeIn().slideY(begin: 0.3),
             const SizedBox(height: 14),
             const _ComingSoonSection(
               emoji: '📖',
