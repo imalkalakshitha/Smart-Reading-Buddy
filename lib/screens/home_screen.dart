@@ -6,6 +6,7 @@ import '../models/app_colors.dart';
 import '../models/app_state.dart';
 import '../models/app_text.dart';
 import '../router/app_router.dart';
+import '../services/ble_command_service.dart';
 import '../services/session_logger.dart';
 import 'calibration_insights_screen.dart';
 import 'parent_pin_screen.dart';
@@ -28,7 +29,6 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _navIndex = 0;
-  bool _buddyConnected = false;
   int _xp = 0;
   int _streakDays = 0;
 
@@ -93,10 +93,8 @@ class _HomeScreenState extends State<HomeScreen> {
       _HomeContent(
         avatar: avatar,
         name: name,
-        buddyConnected: _buddyConnected,
         xp: _xp,
         streakDays: _streakDays,
-        onBuddyTap: () => setState(() => _buddyConnected = !_buddyConnected),
         onMenuTap: _showMenu,
       ),
       _PlaceholderTab(icon: '🎤', label: AppText.speak),
@@ -136,19 +134,15 @@ class _HomeScreenState extends State<HomeScreen> {
 class _HomeContent extends StatelessWidget {
   final String avatar;
   final String name;
-  final bool buddyConnected;
   final int xp;
   final int streakDays;
-  final VoidCallback onBuddyTap;
   final VoidCallback onMenuTap;
 
   const _HomeContent({
     required this.avatar,
     required this.name,
-    required this.buddyConnected,
     required this.xp,
     required this.streakDays,
-    required this.onBuddyTap,
     required this.onMenuTap,
   });
 
@@ -160,10 +154,8 @@ class _HomeContent extends StatelessWidget {
           child: _AnimatedHeader(
             avatar: avatar,
             name: name,
-            buddyConnected: buddyConnected,
             xp: xp,
             streakDays: streakDays,
-            onBuddyTap: onBuddyTap,
             onMenuTap: onMenuTap,
           ),
         ),
@@ -239,19 +231,15 @@ class _HomeContent extends StatelessWidget {
 class _AnimatedHeader extends StatefulWidget {
   final String avatar;
   final String name;
-  final bool buddyConnected;
   final int xp;
   final int streakDays;
-  final VoidCallback onBuddyTap;
   final VoidCallback onMenuTap;
 
   const _AnimatedHeader({
     required this.avatar,
     required this.name,
-    required this.buddyConnected,
     required this.xp,
     required this.streakDays,
-    required this.onBuddyTap,
     required this.onMenuTap,
   });
 
@@ -429,53 +417,74 @@ class _AnimatedHeaderState extends State<_AnimatedHeader>
                         delay: 380,
                       ),
                       const Spacer(),
-                      // BLE chip
-                      GestureDetector(
-                        onTap: widget.onBuddyTap,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.2),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                                color: Colors.white.withOpacity(0.35),
-                                width: 1),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: widget.buddyConnected
-                                      ? Colors.white
-                                      : Colors.white.withOpacity(0.35),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                widget.buddyConnected
-                                    ? AppText.buddyConnected
-                                    : AppText.buddyOffline,
-                                style: GoogleFonts.nunito(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ).animate().fadeIn(delay: 340.ms),
+                      const _BuddyChip().animate().fadeIn(delay: 340.ms),
                     ],
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── BLE buddy chip ────────────────────────────────────────────────────────────
+//
+// Reflects/controls BleCommandService.instance's real connection state —
+// same ValueListenableBuilder pattern as EduPlayChildDashboard's AppBar
+// icon. This is a second, independent trigger point for the same shared
+// singleton; EduPlayChildDashboard's own scanAndConnect() call in initState
+// is untouched.
+
+class _BuddyChip extends StatelessWidget {
+  const _BuddyChip();
+
+  void _onTap() {
+    final ble = BleCommandService.instance;
+    if (ble.isConnected) {
+      ble.disconnect(); // fire and forget, same as scanAndConnect below
+    } else {
+      ble.scanAndConnect(); // fails silently on no device/timeout — see BleCommandService
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: _onTap,
+      child: ValueListenableBuilder<bool>(
+        valueListenable: BleCommandService.instance.connected,
+        builder: (context, connected, _) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.2),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.35), width: 1),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: connected ? Colors.white : Colors.white.withOpacity(0.35),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                connected ? AppText.buddyConnected : AppText.buddyOffline,
+                style: GoogleFonts.nunito(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../models/app_text.dart';
+import '../../services/ble_command_service.dart';
 import '../eduplay_constants.dart';
 import '../eduplay_database.dart';
 import '../eduplay_si_text.dart';
@@ -58,6 +59,11 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
   void initState() {
     super.initState();
     _load();
+    // Fire-and-forget — connecting to the physical buddy device is fully
+    // optional. No spinner, no error UI on failure/timeout: send() already
+    // no-ops safely when nothing is connected, so this screen must look
+    // and behave identically whether or not a buddy is nearby.
+    BleCommandService.instance.scanAndConnect();
   }
 
   Future<void> _load() async {
@@ -115,6 +121,21 @@ class _EduPlayChildDashboardState extends State<EduPlayChildDashboard> {
           AppText.eduplay,
           style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
         ),
+        actions: [
+          // Passive cue only — connected/disconnected, no tap action, no
+          // text, nothing that implies the child needs to do anything.
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: ValueListenableBuilder<bool>(
+              valueListenable: BleCommandService.instance.connected,
+              builder: (context, connected, _) => Icon(
+                connected ? Icons.bluetooth_connected_rounded : Icons.bluetooth_disabled_rounded,
+                color: Colors.white.withValues(alpha: connected ? 1.0 : 0.5),
+                size: 20,
+              ),
+            ),
+          ),
+        ],
       ),
       body: SafeArea(
         child: _loading

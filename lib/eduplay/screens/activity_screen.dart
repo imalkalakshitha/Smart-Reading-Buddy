@@ -82,6 +82,13 @@ class _ActivityScreenState extends State<ActivityScreen> {
   bool _hintUsed = false;
 
   bool get _isSentenceActivity => widget.activityType == 'sentence_drag_drop' || widget.activityType == 'sentence_quiz';
+
+  /// widget.language holds the child's locked profile language as
+  /// 'Sinhala'/'English' (see this screen's class doc comment) — mapped
+  /// to the 2-letter code the ESP32 firmware's BLE command parser expects
+  /// (see main.cpp's trackForCommand). Defaults to 'EN' for any value
+  /// other than exactly 'Sinhala', matching _isSinhala's own check.
+  String get _bleLanguageCode => widget.language == 'Sinhala' ? 'SI' : 'EN';
   bool get _isSinhala => widget.language == 'Sinhala';
 
   Color get _accent => kLessonColors[widget.activityType] ?? const Color(0xFF2ECC71);
@@ -820,10 +827,14 @@ class _ActivityScreenState extends State<ActivityScreen> {
         mistakeType = 'none';
     }
 
-    final task = _task;
-    BleCommandService.instance.send(
-      correct ? (task['buddy_positive'] as String? ?? '') : (task['buddy_corrective'] as String? ?? ''),
-    );
+    // Fixed command keywords for the physical buddy speaker — decoupled
+    // from the on-screen feedback text below (task['buddy_positive']/
+    // 'buddy_corrective'), which stays exactly as it was. The firmware
+    // maps these keywords to audio clips; it has no use for arbitrary
+    // display strings. Language suffix lets the firmware pick a
+    // same-language clip from that command's track block — see
+    // _bleLanguageCode's doc comment.
+    BleCommandService.instance.send('${correct ? 'PRAISE' : 'RETRY'}:$_bleLanguageCode');
 
     if (correct) {
       final stars = _attemptCountThisTask <= 1 ? 3 : (_attemptCountThisTask == 2 ? 2 : 1);

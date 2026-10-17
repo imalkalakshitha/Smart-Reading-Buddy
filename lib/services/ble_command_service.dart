@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class BleCommandService {
   BleCommandService._();
@@ -15,6 +16,14 @@ class BleCommandService {
   StreamSubscription<List<ScanResult>>? _scanSub;
   StreamSubscription<BluetoothConnectionState>? _connSub;
 
+  // Re-entrancy guard — without this, a still-advertising device can appear
+  // in multiple onScanResults batches before stopScan()/cancelling _scanSub
+  // actually takes effect, causing _connect() to fire repeatedly against an
+  // already-connected/connecting device. That flood of redundant GATT calls
+  // is what was causing the BLASTBufferQueue frame-buffer crash shortly
+  // after a successful connect.
+  bool _connecting = false;
+
   /// Notifies listeners when the connection state changes.
   final connected = ValueNotifier<bool>(false);
 
@@ -24,13 +33,30 @@ class BleCommandService {
   bool get isConnected => _characteristic != null;
 
   Future<void> scanAndConnect() async {
-    if (isConnected) return;
+    if (isConnected || _connecting) return;
     try {
-      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+      // Android 12+ (API 31+) requires these as RUNTIME permissions even
+      // though they're already declared in AndroidManifest.xml. Requesting
+      // ones the manifest doesn't declare (or on older Android/iOS, where
+      // these are no-ops) is harmless — permission_handler just resolves
+      // them as granted/not-applicable. Denial isn't specially handled:
+      // the scan below simply finds nothing and this fails silently, same
+      // as every other failure path here.
+      await [Permission.bluetoothScan, Permission.bluetoothConnect].request();
+
       await _scanSub?.cancel();
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
       _scanSub = FlutterBluePlus.onScanResults.listen((results) {
+        // A still-advertising device can appear in more than one results
+        // batch before the cancel()/stopScan() below actually takes
+        // effect — without this guard that re-enters _connect() on an
+        // already-connecting/connected device, flooding the GATT stack.
+        if (_connecting || isConnected) return;
         for (final r in results) {
           if (r.device.platformName.contains(_deviceName)) {
+            _connecting = true;
+            _scanSub?.cancel();
+            _scanSub = null;
             FlutterBluePlus.stopScan();
             _connect(r.device);
             break;
@@ -65,6 +91,8 @@ class BleCommandService {
       }
     } catch (_) {
       connected.value = false;
+    } finally {
+      _connecting = false;
     }
   }
 
@@ -86,6 +114,7 @@ class BleCommandService {
     try { await _device?.disconnect(); } catch (_) {}
     _characteristic = null;
     _device = null;
+    _connecting = false;
     connected.value = false;
   }
 }
