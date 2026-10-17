@@ -55,5 +55,6 @@ flutter:
     - assets/eduplay/eduplay_tasks.json
     - assets/eduplay/audio/words/
     - assets/eduplay/audio/sentences/
+    - assets/numbers/
     - assets/fonts/
     - assets/models/

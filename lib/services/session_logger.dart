@@ -15,7 +15,7 @@ class SessionLogger {
     final path = join(dbPath, 'reading_buddy.db');
     return openDatabase(
       path,
-      version: 18,
+      version: 19,
       onCreate: _createTables,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -274,6 +274,32 @@ class SessionLogger {
               )
             ''');
           }
+          if (oldVersion < 19) {
+            // Number Learning (Numbers hub) — additive only, own table, no
+            // FK into any existing table. See number_learning_dao.dart for
+            // the only code that reads/writes it.
+            await db.execute('''
+              CREATE TABLE IF NOT EXISTS number_learning_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                profile_name TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                grade INTEGER NOT NULL,
+                track TEXT NOT NULL,
+                level_id TEXT NOT NULL,
+                level_number INTEGER NOT NULL,
+                activity_type TEXT NOT NULL,
+                question_index INTEGER NOT NULL,
+                question_key TEXT NOT NULL,
+                correct INTEGER NOT NULL,
+                attempts INTEGER NOT NULL,
+                time_ms INTEGER NOT NULL,
+                score INTEGER NOT NULL,
+                timestamp TEXT NOT NULL
+              )
+            ''');
+            await db.execute('CREATE INDEX IF NOT EXISTS idx_nla_profile_level '
+                'ON number_learning_attempts (profile_name, level_id)');
+          }
         }
       },
     );
@@ -460,6 +486,28 @@ class SessionLogger {
         timestamp TEXT NOT NULL
       )
     ''');
+    // Mirrors the oldVersion < 19 branch above exactly.
+    await db.execute('''
+      CREATE TABLE number_learning_attempts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        profile_name TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        grade INTEGER NOT NULL,
+        track TEXT NOT NULL,
+        level_id TEXT NOT NULL,
+        level_number INTEGER NOT NULL,
+        activity_type TEXT NOT NULL,
+        question_index INTEGER NOT NULL,
+        question_key TEXT NOT NULL,
+        correct INTEGER NOT NULL,
+        attempts INTEGER NOT NULL,
+        time_ms INTEGER NOT NULL,
+        score INTEGER NOT NULL,
+        timestamp TEXT NOT NULL
+      )
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_nla_profile_level '
+        'ON number_learning_attempts (profile_name, level_id)');
   }
 
   /// Shared Database connection, exposed for other modules' DAO code

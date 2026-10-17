@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../data/numbers_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
+import 'learning/number_learning_screen.dart';
 import 'number_word_session_screen.dart';
 import 'rapid_digit_naming_screen.dart';
 
@@ -94,6 +95,25 @@ class NumbersHubScreen extends StatelessWidget {
                 builder: (_) => const RapidDigitNamingScreen(),
               )),
             ).animate(delay: 450.ms).fadeIn().slideY(begin: 0.3),
+
+            // ── Number Learning ────────────────────────────────────────
+            const SizedBox(height: 28),
+            const _SectionHeader(
+              emoji: '🧮',
+              title: 'Number Learning',
+              color: _accent,
+            ).animate(delay: 470.ms).fadeIn(),
+            const SizedBox(height: 10),
+            _NumbersCard(
+              emoji: '🎯',
+              title: 'Number Learning',
+              subtitle: 'Find, build, order and spot patterns',
+              stars: 2,
+              accent: _accent,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const NumberLearningScreen(),
+              )),
+            ).animate(delay: 490.ms).fadeIn().slideY(begin: 0.3),
 
             // ── Other team functions ───────────────────────────────────
             const SizedBox(height: 28),
