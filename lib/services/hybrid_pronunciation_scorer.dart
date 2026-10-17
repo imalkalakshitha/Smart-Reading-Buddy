@@ -80,6 +80,21 @@ class HybridPronunciationScorer {
   /// Normalised amplitude 0.0–1.0.
   static Stream<double> get amplitudeStream => _ampCtrl.stream;
 
+  // Additive observability hook only — see onPartialResult's doc comment.
+  static final _partialResultCtrl = StreamController<void>.broadcast();
+
+  /// Fires every time _onResult receives a non-empty, NON-final result
+  /// (i.e. a genuine partial recognition, not the final one) — added
+  /// purely so Timed Reading's English path (TimedReadingSpeechBridge)
+  /// can time speech onset from actual STT recognition instead of raw
+  /// mic amplitude. Does not read from or write to any of _onResult's
+  /// existing state (_recognized/_confidence) and does not change what
+  /// stopAndScore ultimately returns — a side-channel notification only,
+  /// same broadcast-StreamController pattern as [amplitudeStream] above
+  /// (including never being closed, for the same reason: a static
+  /// singleton that lives for the app's process lifetime).
+  static Stream<void> get onPartialResult => _partialResultCtrl.stream;
+
   // ── English-only: brief WRONG-attempt WAV capture, AFTER STT stops ─────
   static final _attemptRecorder = AudioRecorder();
 
@@ -336,6 +351,12 @@ class HybridPronunciationScorer {
     debugPrint('STT ▶ "${result.recognizedWords}" '
         'conf=${result.confidence.toStringAsFixed(2)} '
         '(final=${result.finalResult})');
+    // Additive notification only — see onPartialResult's doc comment.
+    // Placed after the existing logic/debugPrint above, unconditionally
+    // regardless of them, so it can never alter what those do.
+    if (result.recognizedWords.isNotEmpty && !result.finalResult && !_partialResultCtrl.isClosed) {
+      _partialResultCtrl.add(null);
+    }
   }
 
   static void _safeAdd(double v) {

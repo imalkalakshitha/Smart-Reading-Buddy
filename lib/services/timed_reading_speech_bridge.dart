@@ -39,10 +39,34 @@ class TimedReadingSttResult {
 }
 
 class TimedReadingSpeechBridge {
+  // English only — subscription to HybridPronunciationScorer's additive
+  // onPartialResult hook (see that file's doc comment). Held here so
+  // stopAndGetTranscript can cancel it once a unit's recording ends,
+  // same lifecycle as everything else scoped to one recording attempt.
+  static StreamSubscription<void>? _partialResultSub;
+
   /// [lang] is 'en' or 'si' — same convention HybridPronunciationScorer
-  /// already uses.
-  static Future<void> startRecording({required String lang}) =>
-      HybridPronunciationScorer.startRecording(lang: lang);
+  /// already uses. [onFirstPartialResult], English only, fires once — the
+  /// first time the STT engine delivers a genuine (non-final) partial
+  /// recognition — so ReadingScreen can time speech onset from actual STT
+  /// recognition instead of amplitude-threshold VAD. Ignored for Sinhala
+  /// (no on-device STT session exists there to observe).
+  static Future<void> startRecording({
+    required String lang,
+    void Function()? onFirstPartialResult,
+  }) async {
+    await _partialResultSub?.cancel();
+    _partialResultSub = null;
+    if (lang == 'en' && onFirstPartialResult != null) {
+      var fired = false;
+      _partialResultSub = HybridPronunciationScorer.onPartialResult.listen((_) {
+        if (fired) return;
+        fired = true;
+        onFirstPartialResult();
+      });
+    }
+    return HybridPronunciationScorer.startRecording(lang: lang);
+  }
 
   /// Stops recording and returns the raw transcript. [sentenceText] is
   /// passed through as the required `word`/`sinhalaScript` params
@@ -66,6 +90,8 @@ class TimedReadingSpeechBridge {
     void Function()? onRecordingStopped,
   }) async {
     onRecordingStopped?.call();
+    await _partialResultSub?.cancel();
+    _partialResultSub = null;
 
     // Sinhala-only: GeminiSinhalaScorer.isRetrying is a public
     // ValueNotifier<bool> already exposed for UI ("please wait,

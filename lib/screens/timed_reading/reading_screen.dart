@@ -8,6 +8,7 @@ import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../models/timed_reading_session.dart';
 import '../../router/app_router.dart';
+import '../../services/timed_reading_coaching_messages.dart';
 import '../../services/timed_reading_speech_bridge.dart';
 import '../../utils/word_diff.dart';
 
@@ -91,11 +92,28 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
   final _vad = TimedReadingVadMonitor();
   String? _retryNotice; // transient "no speech, try again" banner — English only now
   int? _speechStartMs; // stopwatch reading at actual speech onset (VAD-detected), not at tap
+  // English only — stopwatch reading at the moment STT delivers its FIRST
+  // genuine partial recognition (see TimedReadingSpeechBridge
+  // .onFirstPartialResult / HybridPronunciationScorer.onPartialResult).
+  // Preferred over _speechStartMs when available — see _stopAndCapture's
+  // elapsed calculation for the fallback chain.
+  int? _firstPartialResultMs;
 
   // Sinhala only: unique per-attempt token so this session's temp audio
   // filenames (see TimedReadingAudioRecorder.pathFor) never collide with
   // another session's, even if both happen to record the same unit index.
   final String _sessionAudioToken = DateTime.now().millisecondsSinceEpoch.toString();
+
+  // ── "Buddy Voice Coaching" text banner ───────────────────────────────
+  // UI/timer-triggered only — no STT/VAD/Gemini/mic involvement. See
+  // timed_reading_coaching_messages.dart.
+  String? _coachingMessage;
+  Timer? _coachingMessageTimer;
+  // Reset once per recording attempt (in _startRecording) — guards the
+  // live pace-nudge check in _uiTimer's periodic callback so it fires at
+  // most once per attempt, not repeatedly every 200ms once past
+  // threshold.
+  bool _paceNudgeShownThisUnit = false;
 
   @override
   void initState() {
@@ -112,12 +130,45 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     _session.startedAt = DateTime.now();
     _stopwatch.start();
     _uiTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (mounted) setState(() {});
+      if (!mounted) return;
+      // Live "encourage faster pace" check — reads already-ticking
+      // Stopwatch state only (same baseline the post-hoc `stalled` check
+      // in _stopAndCapture/_advanceManual uses), no STT/VAD/Gemini/mic
+      // involvement, no async work — this timer was already running
+      // every 200ms purely for the mm:ss display, this just adds a
+      // synchronous comparison to that existing tick. Guarded by
+      // _paceNudgeShownThisUnit so it can only fire once per recording
+      // attempt, not repeatedly once past threshold.
+      if (_recording && !_paceNudgeShownThisUnit) {
+        final elapsed = _stopwatch.elapsedMilliseconds - (_speechStartMs ?? _recordStartMs);
+        final upperMs = (_sentences[_unitIndex].upperThresholdSec * 1000).round();
+        if (elapsed > upperMs) {
+          _paceNudgeShownThisUnit = true;
+          _showCoachingMessage(TimedReadingCoachingMessages.encouragePace(_langCode));
+        }
+      }
+      setState(() {});
     });
     // ignore: avoid_print
     print('[TR] ═══ READING START ═══');
     // ignore: avoid_print
     print('[TR] activity=${_session.activityId}  child=${_session.childKey}  units=${_sentences.length}');
+
+    // Direct field assignment (not _showCoachingMessage) — this runs
+    // during initState, before the first build, so calling setState here
+    // would be redundant/unsafe; the initial build already picks up
+    // _coachingMessage's current value. The auto-dismiss Timer itself is
+    // fine to start here since its callback (which does call setState)
+    // only fires later, once the widget is definitely mounted.
+    final startMessage = TimedReadingCoachingMessages.start(_langCode);
+    if (startMessage != null) {
+      // ignore: avoid_print
+      print('[TR] coaching message: "$startMessage"');
+      _coachingMessage = startMessage;
+      _coachingMessageTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _coachingMessage = null);
+      });
+    }
 
     _checkSpeechFlow();
   }
@@ -142,6 +193,7 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     WidgetsBinding.instance.removeObserver(this);
     _uiTimer?.cancel();
     _autoStopTimer?.cancel();
+    _coachingMessageTimer?.cancel();
     _vad.stop();
     _stopwatch.stop();
     _audioPlayer.dispose();
@@ -225,6 +277,24 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     print('[TR] resumed  unit=$_unitIndex');
   }
 
+  /// Shows a short encouraging banner for [autoDismissDuration] (default
+  /// 3s), then clears it. No-op when [message] is null — the current
+  /// Sinhala-pending state (see TimedReadingCoachingMessages) — so
+  /// callers never need their own null check. Safe to call from any
+  /// already-async/event-driven context (Timer callback, button tap,
+  /// etc.) — NOT called during initState directly for this reason (see
+  /// initState's own inline handling instead).
+  void _showCoachingMessage(String? message, {Duration? autoDismissDuration}) {
+    if (message == null) return;
+    // ignore: avoid_print
+    print('[TR] coaching message: "$message"');
+    _coachingMessageTimer?.cancel();
+    setState(() => _coachingMessage = message);
+    _coachingMessageTimer = Timer(autoDismissDuration ?? const Duration(seconds: 3), () {
+      if (mounted) setState(() => _coachingMessage = null);
+    });
+  }
+
   void _onSettingsTap() {
     _pause();
     _showResumeDialog();
@@ -295,6 +365,8 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     // always falls back to this tap-to-start timestamp by design.
     _recordStartMs = _stopwatch.elapsedMilliseconds;
     _speechStartMs = null;
+    _firstPartialResultMs = null;
+    _paceNudgeShownThisUnit = false;
     if (_isSinhala) {
       // Own independent recorder — never touches
       // GeminiSinhalaScorer/HybridPronunciationScorer at all.
@@ -304,7 +376,10 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       );
       await TimedReadingAudioRecorder.start(path: path);
     } else {
-      await TimedReadingSpeechBridge.startRecording(lang: _langCode);
+      await TimedReadingSpeechBridge.startRecording(
+        lang: _langCode,
+        onFirstPartialResult: () => _firstPartialResultMs ??= _stopwatch.elapsedMilliseconds,
+      );
     }
     if (!mounted) return;
     // Safety ceiling only, for BOTH languages — the routine stop signal
@@ -399,6 +474,18 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
 
     final autoDetected = diffWords(expected: unit.text, transcribed: result.transcript!);
     final finalCaptureMs = _stopwatch.elapsedMilliseconds;
+    // REVERTED (2026-08-27): tried preferring firstPartialResultMs (STT
+    // recognition onset) here instead — live trace showed a consistent
+    // ~2.2-2.8s gap between VAD onset and the STT engine's first partial
+    // result, comparable to or larger than these short sentences' entire
+    // elapsed time. That's the STT engine's own internal processing
+    // latency, not the child's actual speech start — using it would have
+    // silently swallowed a huge chunk of real reading time out of every
+    // measurement instead of improving accuracy. Back to VAD onset
+    // (amplitude-threshold, fires within ~100-140ms of tap in practice)
+    // as the validated baseline. firstPartialResultMs is still captured
+    // (see _startRecording) and available if this is revisited, just no
+    // longer consulted here.
     final elapsed = finalCaptureMs - (_speechStartMs ?? _recordStartMs);
     _checkpointMs = finalCaptureMs;
 
@@ -413,7 +500,7 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       autoDetectedMisreadIndexes: autoDetected,
     ));
     // ignore: avoid_print
-    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  recordingStoppedMs=$recordingStoppedMs  finalCaptureMs=$finalCaptureMs  geminiRetryWaitMs=${result.geminiRetryWaitMs}  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  tooFast=$tooFast  transcript="${result.transcript}"');
+    print('[TR] unit $finishedIndex done  elapsedMs=$elapsed  firstPartialResultMs=$_firstPartialResultMs  speechStartMs=$_speechStartMs  recordStartMs=$_recordStartMs  recordingStoppedMs=$recordingStoppedMs  finalCaptureMs=$finalCaptureMs  geminiRetryWaitMs=${result.geminiRetryWaitMs}  expectedMs=${(unit.expectedTimeSec * 1000).round()}  stalled=$stalled  tooFast=$tooFast  transcript="${result.transcript}"');
 
     setState(() => _scoring = false);
     _advanceUnit(finishedIndex);
@@ -451,6 +538,7 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
       _finish();
     } else {
       setState(() => _unitIndex++);
+      _showCoachingMessage(TimedReadingCoachingMessages.nextUnit(_langCode));
     }
   }
 
@@ -461,6 +549,24 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
     // ignore: avoid_print
     print('[TR] ═══ READING FINISHED ═══  totalElapsedMs=${_session.totalElapsedMs}  interrupted=${_session.interrupted}  manualFallback=${_session.manualFallback}');
 
+    // Session-complete coaching message, shown briefly BEFORE navigating
+    // away (not shown at all — navigation is immediate, exactly as
+    // before this feature — when the message is null, i.e. Sinhala
+    // pending verified copy). _navigateToMiscueMarking's args are
+    // unchanged either way; only the timing of the call differs.
+    final message = TimedReadingCoachingMessages.sessionComplete(_langCode);
+    if (message == null) {
+      _navigateToMiscueMarking();
+      return;
+    }
+    _showCoachingMessage(message, autoDismissDuration: const Duration(seconds: 2));
+    Future.delayed(const Duration(milliseconds: 2000), () {
+      if (!mounted) return;
+      _navigateToMiscueMarking();
+    });
+  }
+
+  void _navigateToMiscueMarking() {
     Navigator.pushReplacementNamed(
       context,
       AppRouter.timedReadingMiscue,
@@ -547,6 +653,26 @@ class _ReadingScreenState extends State<ReadingScreen> with WidgetsBindingObserv
                     style: GoogleFonts.nunito(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.danger),
                   ),
                 ),
+              ],
+              // "Buddy Voice Coaching" text banner — non-blocking, reuses
+              // this screen's own retryNotice Container pattern (teal
+              // instead of danger tint, encouraging instead of warning).
+              if (_coachingMessage != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppColors.timedReading.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.timedReading.withValues(alpha: 0.35), width: 1),
+                  ),
+                  child: Text(
+                    _coachingMessage!,
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.nunito(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.timedReading),
+                  ),
+                ).animate().fadeIn(duration: 250.ms),
               ],
               const SizedBox(height: 16),
 

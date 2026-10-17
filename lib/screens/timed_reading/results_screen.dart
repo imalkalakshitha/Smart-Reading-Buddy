@@ -6,6 +6,7 @@ import '../../data/timed_reading_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../router/app_router.dart';
+import '../../services/ble_command_service.dart';
 
 /// WPM/WCPM results, with a real "own best" comparison pulled from
 /// TimedReadingDao — the best prior WPM at this exact grade+language+
@@ -85,6 +86,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _isFirstAttempt = best == null;
         _loadingBest = false;
       });
+      _sendSessionEndBleCommand();
     } catch (e) {
       // ignore: avoid_print
       print('[TR] own-best query failed — falling back to default baseline: $e');
@@ -94,7 +96,26 @@ class _ResultsScreenState extends State<ResultsScreen> {
         _isFirstAttempt = true;
         _loadingBest = false;
       });
+      _sendSessionEndBleCommand();
     }
+  }
+
+  /// Fire-and-forget, same as every other BleCommandService call site —
+  /// no-ops safely if nothing's connected. Fired once, after the own-best
+  /// comparison above has resolved, using exactly that same signal (no
+  /// new threshold invented): only a confirmed improvement over a real
+  /// prior best counts as "good" (SESSION_END); a first attempt (no basis
+  /// to judge) or a non-improved result both fall into "poor/mixed"
+  /// (ENCOURAGE) — matches build()'s own `improved`/`comparisonBasis`
+  /// calculation.
+  void _sendSessionEndBleCommand() {
+    if (args.sentences.isEmpty) return; // no grade -> no baseline to compare against
+    final grade = args.sentences.first.grade;
+    final defaultWpm = grade == 'grade4' ? _defaultWpmGrade4 : _defaultWpmGrade3;
+    final comparisonBasis = _bestPreviousWpm ?? defaultWpm;
+    final performedWell = !_isFirstAttempt && _wpm > comparisonBasis;
+    final lang = AppState.language == 'sinhala' ? 'SI' : 'EN';
+    BleCommandService.instance.send(performedWell ? 'SESSION_END:$lang' : 'ENCOURAGE:$lang');
   }
 
   @override
