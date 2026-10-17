@@ -4,18 +4,37 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../data/numbers_data.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
+import '../../services/numbers/level_config.dart';
 import 'learning/number_learning_screen.dart';
+import 'learning/number_level_list_screen.dart';
 import 'number_word_session_screen.dart';
 import 'rapid_digit_naming_screen.dart';
 
 /// Numbers — a shared, cross-module feature reached only from the Home
-/// screen (AppRouter.numbers). ENGLISH ONLY. Sections: Pronunciation and
-/// Number Learning (live), then EduPlay + Encoding and Reading ("Coming
-/// soon").
+/// screen (AppRouter.numbers). ENGLISH ONLY. Sections: Pronunciation,
+/// Number Learning, EduPlay + Encoding (Spell Number Words, Number Match)
+/// and Reading (Read & Answer).
 class NumbersHubScreen extends StatelessWidget {
   const NumbersHubScreen({super.key});
 
   static const _accent = Color(0xFFF39C12);
+  static const _eduPlayColor = Color(0xFF7B61FF);
+  static const _readingColor = Color(0xFF16A085);
+
+  /// Opens one practice activity's level list (practice_activities.json).
+  static Future<void> _openPractice(BuildContext context, String track, String title) async {
+    final all = await LevelRepository.loadPractice();
+    if (!context.mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => NumberLevelListScreen(
+        grade: 0,
+        track: track,
+        levels: LevelRepository.forTrack(all, 0, track),
+        trackUnlocked: true,
+        title: title,
+      ),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -115,18 +134,47 @@ class NumbersHubScreen extends StatelessWidget {
               )),
             ).animate(delay: 490.ms).fadeIn().slideY(begin: 0.3),
 
-            // ── Other team functions ───────────────────────────────────
+            // ── EduPlay + Encoding ─────────────────────────────────────
             const SizedBox(height: 28),
-            const _ComingSoonSection(
+            const _SectionHeader(
               emoji: '🎮',
               title: 'EduPlay + Encoding',
-              color: Color(0xFF7B61FF),
-            ).animate(delay: 500.ms).fadeIn().slideY(begin: 0.3),
+              color: _eduPlayColor,
+            ).animate(delay: 500.ms).fadeIn(),
+            const SizedBox(height: 10),
+            _NumbersCard(
+              emoji: '🔤',
+              title: 'Spell Number Words',
+              subtitle: 'Build the word with letter tiles',
+              stars: 2,
+              accent: _eduPlayColor,
+              onTap: () => _openPractice(context, PracticeTrack.spellWords, 'Spell Number Words'),
+            ).animate(delay: 520.ms).fadeIn().slideY(begin: 0.3),
             const SizedBox(height: 14),
-            const _ComingSoonSection(
+            _NumbersCard(
+              emoji: '🃏',
+              title: 'Number Match',
+              subtitle: 'Match 7 ↔ seven ↔ 7 apples',
+              stars: 2,
+              accent: _eduPlayColor,
+              onTap: () => _openPractice(context, PracticeTrack.numberMatch, 'Number Match'),
+            ).animate(delay: 560.ms).fadeIn().slideY(begin: 0.3),
+
+            // ── Reading ────────────────────────────────────────────────
+            const SizedBox(height: 28),
+            const _SectionHeader(
               emoji: '📖',
               title: 'Reading',
-              color: Color(0xFF16A085),
+              color: _readingColor,
+            ).animate(delay: 600.ms).fadeIn(),
+            const SizedBox(height: 10),
+            _NumbersCard(
+              emoji: '🗣️',
+              title: 'Read & Answer',
+              subtitle: 'Listen, read along, answer',
+              stars: 2,
+              accent: _readingColor,
+              onTap: () => _openPractice(context, PracticeTrack.readAnswer, 'Read & Answer'),
             ).animate(delay: 620.ms).fadeIn().slideY(begin: 0.3),
             const SizedBox(height: 24),
           ],
@@ -184,49 +232,6 @@ class _SubHeading extends StatelessWidget {
         fontWeight: FontWeight.w800,
         color: AppColors.textSecondary,
       ),
-    );
-  }
-}
-
-/// A team-function section with no Numbers activities yet.
-class _ComingSoonSection extends StatelessWidget {
-  final String emoji;
-  final String title;
-  final Color color;
-
-  const _ComingSoonSection({required this.emoji, required this.title, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(emoji: emoji, title: title, color: color),
-        const SizedBox(height: 10),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.06),
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: color.withValues(alpha: 0.3)),
-          ),
-          child: Row(
-            children: [
-              const Text('🚧', style: TextStyle(fontSize: 24)),
-              const SizedBox(width: 12),
-              Text(
-                'Coming soon',
-                style: GoogleFonts.nunito(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }

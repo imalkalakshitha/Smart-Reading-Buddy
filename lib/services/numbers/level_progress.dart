@@ -16,7 +16,10 @@ class LevelProgressRules {
   static const passScore = 8;
   static const questionsPerSession = 10;
 
-  static bool isPlayable(LevelConfig l) => QuestionGenerator.supports(l.activityType);
+  /// Number Match boards come from MatchBoardGenerator rather than
+  /// QuestionGenerator, but play the same 10-question sessions.
+  static bool isPlayable(LevelConfig l) =>
+      QuestionGenerator.supports(l.activityType) || l.activityType == ActivityType.numberMatch;
 
   static Map<String, LevelState> states(
     List<LevelConfig> trackLevels,

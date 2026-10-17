@@ -1,4 +1,6 @@
 import 'dart:math';
+import '../../data/number_sentence_data.dart';
+import '../../data/numbers_data.dart';
 import 'level_config.dart';
 import 'number_question.dart';
 
@@ -32,6 +34,8 @@ class QuestionGenerator {
     ActivityType.formation,
     ActivityType.calculation,
     ActivityType.placeValue,
+    ActivityType.spellWord,
+    ActivityType.readAnswer,
   };
 
   static bool supports(String activityType) => _supported.contains(activityType);
@@ -92,6 +96,10 @@ class QuestionGenerator {
         return _calculation(level);
       case ActivityType.placeValue:
         return level.mode == 'comparison' ? _comparison(level) : _placeValue(level);
+      case ActivityType.spellWord:
+        return _spellWord(level);
+      case ActivityType.readAnswer:
+        return _readAnswer(level);
       default:
         return null;
     }
@@ -376,6 +384,114 @@ class QuestionGenerator {
     return ComparisonQuestion(a: a, b: b, askBigger: _rng.nextBool());
   }
 
+  // ── Spell Number Words ───────────────────────────────────────────────
+
+  /// Letters often swapped or misread (b/d, p/q, m/n/u, w/v, i/l, f/t …) —
+  /// used as distractor tiles so the extra letters are tempting, not random.
+  static const confusableLetters = {
+    'a': ['e', 'o'], 'b': ['d'], 'c': ['s'], 'd': ['b'], 'e': ['a', 'i'],
+    'f': ['t'], 'g': ['q', 'y'], 'h': ['n'], 'i': ['l', 'j'], 'l': ['i'],
+    'm': ['n', 'w'], 'n': ['m', 'u', 'h'], 'o': ['a', 'e'], 'p': ['q'],
+    'q': ['p'], 'r': ['n'], 's': ['z', 'c'], 't': ['f', 'l'], 'u': ['n', 'v'],
+    'v': ['w', 'u'], 'w': ['v', 'm'], 'x': ['k'], 'y': ['g', 'v'], 'z': ['s'],
+  };
+
+  SpellWordQuestion? _spellWord(LevelConfig level) {
+    final values = [for (var v = level.min; v <= level.max; v += level.step) v];
+    if (values.isEmpty) return null;
+    final value = values[_rng.nextInt(values.length)];
+    final word = NumbersData.wordFor(value);
+    if (word == null) return null;
+    final letters = word.replaceAll(' ', '').split('');
+    // -teen / -ty is the classic number-word mix-up, so a teen word gets a
+    // 'y' tile and a ty word an 'e' tile before the look-alike letters.
+    final pool = <String>[
+      if (word.endsWith('teen')) 'y',
+      if (word.endsWith('ty')) 'e',
+      ...(<String>{for (final l in letters) ...?confusableLetters[l]}.toList()..shuffle(_rng)),
+    ];
+    final extras = <String>[];
+    for (final l in pool) {
+      if (extras.length == level.distractorLetters) break;
+      extras.add(l);
+    }
+    while (extras.length < level.distractorLetters) {
+      extras.add(String.fromCharCode(0x61 + _rng.nextInt(26)));
+    }
+    final tiles = [...letters, ...extras];
+    for (var i = 0; i < 20; i++) {
+      tiles.shuffle(_rng);
+      if (!_startsWithStr(tiles, letters)) break;
+    }
+    return SpellWordQuestion(value: value, word: word, tiles: tiles);
+  }
+
+  static bool _startsWithStr(List<String> list, List<String> prefix) {
+    if (list.length < prefix.length) return false;
+    for (var i = 0; i < prefix.length; i++) {
+      if (list[i] != prefix[i]) return false;
+    }
+    return true;
+  }
+
+  // ── Read & Answer ────────────────────────────────────────────────────
+
+  ReadAnswerQuestion? _readAnswer(LevelConfig level) {
+    T pick<T>(List<T> xs) => xs[_rng.nextInt(xs.length)];
+    final template = pick(SentenceTemplate.values);
+    final name = pick(NumberSentenceData.names);
+    final object = pick(NumberSentenceData.objects);
+    final a = _randIn(level.min, level.max);
+    int? b;
+    NumberObject? object2;
+    String? colour1, colour2;
+    SentenceAsk ask;
+    switch (template) {
+      case SentenceTemplate.one:
+        ask = SentenceAsk.total;
+      case SentenceTemplate.colours:
+        b = _randIn(level.min, level.max);
+        final colours = [...NumberSentenceData.colours]..shuffle(_rng);
+        colour1 = colours[0];
+        colour2 = colours[1];
+        // The total is only asked when it stays inside the level's range.
+        ask = pick([
+          SentenceAsk.first,
+          SentenceAsk.second,
+          if (a + b <= level.max) SentenceAsk.total,
+        ]);
+      case SentenceTemplate.twoObjects:
+        b = _randIn(level.min, level.max);
+        object2 = pick(NumberSentenceData.objects.where((o) => o != object).toList());
+        ask = pick([SentenceAsk.first, SentenceAsk.second]);
+    }
+    if (b != null && a == b) return null; // the other number must differ
+    final draft = ReadAnswerQuestion(
+      template: template, name: name, object: object, object2: object2,
+      colour1: colour1, colour2: colour2, a: a, b: b, ask: ask, options: const [],
+    );
+    final answer = draft.answer;
+    // Picking the sentence's other number (or the total) is the typical
+    // reading mistake, so those come first.
+    final options = _optionsFor(
+      answer,
+      level.optionCount,
+      meaningful: [
+        ...draft.numbers,
+        if (b != null) a + b,
+        answer + 1,
+        answer - 1,
+      ].where((v) => v >= 1).toList(),
+      fallbackMin: max(1, answer - 3),
+      fallbackMax: answer + 3,
+    );
+    if (options == null) return null;
+    return ReadAnswerQuestion(
+      template: template, name: name, object: object, object2: object2,
+      colour1: colour1, colour2: colour2, a: a, b: b, ask: ask, options: options,
+    );
+  }
+
   // ── Shared helpers ───────────────────────────────────────────────────
 
   /// Digit swaps and ±1 on one digit, excluding [n] itself, negatives and
@@ -522,6 +638,33 @@ class QuestionGenerator {
         if (!level.contains(q.number)) return 'number out of range';
         if (!_placesFor(q.number).contains(q.place)) return 'place not in number';
         if (q.options.any((o) => o < 0 || o > 9)) return 'option not a digit';
+        return _validateOptions(q.answer, q.options, level.optionCount);
+      case SpellWordQuestion():
+        if (q.value < level.min || q.value > level.max) return 'value out of range';
+        if ((q.value - level.min) % level.step != 0) return 'value off step';
+        if (q.word != NumbersData.wordFor(q.value)) return 'wrong word';
+        if (!RegExp(r'^[a-z ]+$').hasMatch(q.word)) return 'word needs letters only';
+        if (q.tiles.length != q.letters.length + level.distractorLetters) return 'wrong tile count';
+        if (q.tiles.any((t) => !RegExp(r'^[a-z]$').hasMatch(t))) return 'invalid tile';
+        final rest = [...q.tiles];
+        for (final l in q.letters) {
+          if (!rest.remove(l)) return 'tiles cannot spell the word';
+        }
+        return null;
+      case ReadAnswerQuestion():
+        if (!q.numbers.every((n) => n >= level.min && n <= level.max)) return 'number out of range';
+        if (q.answer < level.min || q.answer > level.max) return 'answer out of range';
+        if (q.b != null && q.a == q.b) return 'numbers must differ';
+        switch (q.template) {
+          case SentenceTemplate.one:
+            if (q.b != null || q.ask != SentenceAsk.total) return 'bad one-number question';
+          case SentenceTemplate.colours:
+            if (q.b == null || q.colour1 == null || q.colour1 == q.colour2) return 'bad colours';
+          case SentenceTemplate.twoObjects:
+            if (q.b == null || q.object2 == null || q.object2 == q.object) return 'bad objects';
+            if (q.ask == SentenceAsk.total) return 'no total for two objects';
+        }
+        if (q.options.any((o) => o < 1)) return 'option below 1';
         return _validateOptions(q.answer, q.options, level.optionCount);
       case ComparisonQuestion():
         if (q.a == q.b) return 'equal numbers';

@@ -14,9 +14,24 @@ class ActivityType {
   static const calculation = 'calculation';
   static const placeValue = 'place_value';
 
+  // Numbers hub practice activities (assets/numbers/practice_activities.json).
+  static const spellWord = 'spell_word';
+  static const numberMatch = 'number_match';
+  static const readAnswer = 'read_answer';
+
   static const all = {
     recognition, build, counting, ordering, formation, patterns, calculation, placeValue,
+    spellWord, numberMatch, readAnswer,
   };
+}
+
+/// Activity chains in practice_activities.json (stored in `track`).
+class PracticeTrack {
+  PracticeTrack._();
+
+  static const spellWords = 'spell_words';
+  static const numberMatch = 'number_match';
+  static const readAnswer = 'read_answer';
 }
 
 class Track {
@@ -126,6 +141,16 @@ class LevelConfig {
   /// Place value: 'place_value' or 'comparison'.
   String get mode => raw['mode'] as String? ?? 'place_value';
 
+  // ── Practice activity params ──────────────────────────────────────────
+  /// Spell: values run min, min + step, … max (1 = every number).
+  int get step => raw['step'] as int? ?? 1;
+  /// Spell: extra letter tiles added to the word's own letters.
+  int get distractorLetters => raw['distractorLetters'] as int? ?? 2;
+  /// Number Match: pairs on one full board.
+  int get pairsPerBoard => (raw['pairsPerBoard'] as int? ?? 3).clamp(2, 6);
+  /// Number Match: card forms a pair can use — digit, word, picture.
+  List<String> get forms => ((raw['forms'] as List?) ?? const ['digit', 'word']).cast<String>();
+
   /// Multiple-choice options shown, capped at 4 (dyslexia-friendly).
   int get optionCount {
     final n = raw['optionCount'] as int? ?? 3;
@@ -152,10 +177,17 @@ class LevelRepository {
   LevelRepository._();
 
   static const assetPath = 'assets/numbers/levels.json';
+  static const practiceAssetPath = 'assets/numbers/practice_activities.json';
   static List<LevelConfig>? _cache;
+  static List<LevelConfig>? _practiceCache;
 
   static Future<List<LevelConfig>> load() async {
     return _cache ??= parse(await rootBundle.loadString(assetPath));
+  }
+
+  /// The Numbers hub practice activities (Spell, Match, Read & Answer).
+  static Future<List<LevelConfig>> loadPractice() async {
+    return _practiceCache ??= parse(await rootBundle.loadString(practiceAssetPath));
   }
 
   /// Parses the JSON text — separate from [load] so tests can feed the file

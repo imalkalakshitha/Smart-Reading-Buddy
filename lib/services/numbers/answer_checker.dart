@@ -15,7 +15,9 @@ enum AnswerResult {
 /// Response shapes: Recognition/Patterns/Counting/Calculation/PlaceValue/
 /// Comparison → the tapped option (int); Recognition's colouring step →
 /// [QuantityResponse]; Build/Formation → the digits placed, in slot order
-/// (`List<int>`); Ordering → the numbers in the order placed (`List<int>`).
+/// (`List<int>`); Ordering → the numbers in the order placed (`List<int>`);
+/// Spell → the letters placed, in slot order (`List<String>`); Read &
+/// Answer → the tapped option (int).
 class NumberAnswerCheck {
   NumberAnswerCheck._();
 
@@ -47,6 +49,9 @@ class NumberAnswerCheck {
       BuildQuestion() => response is List<int> && _listEq(response, q.answerDigits),
       FormationQuestion() => response is List<int> && _listEq(response, q.answerDigits),
       OrderingQuestion() => response is List<int> && _listEq(response, q.answer),
+      // Letters in slot order, compared one by one (spaces are not tiles).
+      SpellWordQuestion() => response is List<String> && response.join() == q.letters.join(),
+      ReadAnswerQuestion() => response is int && response == q.answer,
     };
   }
 
@@ -63,6 +68,8 @@ class NumberAnswerCheck {
       CalculationQuestion() => '${q.answer}',
       PlaceValueQuestion() => '${q.answer}',
       ComparisonQuestion() => '${q.answer}',
+      SpellWordQuestion() => q.word,
+      ReadAnswerQuestion() => '${q.answer}',
     };
   }
 

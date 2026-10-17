@@ -8,6 +8,7 @@ import '../../../models/app_colors.dart';
 import '../../../models/app_state.dart';
 import '../../../services/numbers/answer_checker.dart';
 import '../../../services/numbers/level_config.dart';
+import '../../../services/numbers/learner_grade.dart';
 import '../../../services/numbers/level_progress.dart';
 import '../../../services/numbers/number_question.dart';
 import '../../../services/numbers/question_generator.dart';
@@ -18,8 +19,11 @@ import 'activities/formation_activity.dart';
 import 'activities/ordering_activity.dart';
 import 'activities/pattern_activity.dart';
 import 'activities/place_value_activity.dart';
+import 'activities/read_answer_activity.dart';
 import 'activities/recognition_activity.dart';
+import 'activities/spell_word_activity.dart';
 import 'learning_widgets.dart';
+import 'session_summary.dart';
 
 enum _Feedback { none, correct, tryAgain, step, revealed }
 
@@ -43,6 +47,9 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
 
   final _speaker = NumberSpeaker();
   final _sessionId = const Uuid().v4();
+  // Bumped by the replay button for questions that read themselves aloud
+  // (Read & Answer), so the activity re-reads with word highlighting.
+  final _replaySignal = ValueNotifier<int>(0);
 
   List<NumberQuestion>? _questions;
   String? _error;
@@ -67,6 +74,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
   void dispose() {
     _advanceTimer?.cancel();
     _speaker.stop();
+    _replaySignal.dispose();
     super.dispose();
   }
 
@@ -94,7 +102,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
       _feedback = _Feedback.none;
       _questionStart = DateTime.now();
     });
-    _speaker.say(_q.speech);
+    if (!_q.speaksItself) _speaker.say(_q.speech);
   }
 
   bool _onSubmit(Object response) {
@@ -133,6 +141,10 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
 
   /// Replay: the follow-up instruction once a question is on its second step.
   void _replay() {
+    if (_q.speaksItself && _feedback != _Feedback.step) {
+      _replaySignal.value++;
+      return;
+    }
     final follow = _q.followUpSpeech;
     _speaker.say(_feedback == _Feedback.step && follow != null ? follow : _q.speech);
   }
@@ -142,6 +154,9 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
       profileName: AppState.name,
       sessionId: _sessionId,
       level: widget.level,
+      // Practice activities aren't grade-specific (grade 0) — record the
+      // child's own grade instead.
+      grade: widget.level.grade == 0 ? LearnerGrade.fromProfile(AppState.grade).grade : null,
       questionIndex: _index,
       questionKey: _q.key,
       correct: correct,
@@ -266,6 +281,15 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
           question: q, onSubmit: _onSubmit, enabled: enabled, revealed: revealed),
       ComparisonQuestion() => ComparisonActivity(
           question: q, onSubmit: _onSubmit, enabled: enabled, revealed: revealed),
+      SpellWordQuestion() => SpellWordActivity(
+          question: q, onSubmit: _onSubmit, enabled: enabled, revealed: revealed),
+      ReadAnswerQuestion() => ReadAnswerActivity(
+          question: q,
+          onSubmit: _onSubmit,
+          enabled: enabled,
+          revealed: revealed,
+          speaker: _speaker,
+          replaySignal: _replaySignal),
     };
   }
 
@@ -322,64 +346,12 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     ).animate(key: ValueKey('f$_index$_feedback$_tries')).slideY(begin: 0.4, duration: 200.ms).fadeIn();
   }
 
-  Widget _summary() {
-    final total = _questions!.length;
-    final passed = _score >= LevelProgressRules.passScore;
-    final stars = passed ? 3 : (_score >= 5 ? 2 : 1);
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          const SizedBox(height: 8),
-          Text(passed ? '🏆' : '🌟', style: const TextStyle(fontSize: 84))
-              .animate()
-              .scale(begin: const Offset(0.5, 0.5), curve: Curves.easeOutBack),
-          const SizedBox(height: 8),
-          Text(
-            passed ? 'Level passed!' : 'Well done!',
-            style: GoogleFonts.nunito(fontSize: 30, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: List.generate(
-              3,
-              (i) => Icon(
-                i < stars ? Icons.star_rounded : Icons.star_border_rounded,
-                color: i < stars ? Colors.amber : Colors.grey.shade300,
-                size: 44,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            '$_score / $total',
-            style: GoogleFonts.nunito(fontSize: 48, fontWeight: FontWeight.w900, color: LearningColors.accent),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            passed
-                ? 'The next level is open! ✓'
-                : 'Get ${LevelProgressRules.passScore} or more to open the next level. You can do it!',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 32),
-          PillButton(
-            label: 'Play again 🔁',
-            color: LearningColors.accent,
-            onTap: () => Navigator.of(context).pushReplacement(MaterialPageRoute(
-              builder: (_) => NumberLearningSessionScreen(level: widget.level),
-            )),
-          ),
-          const SizedBox(height: 12),
-          PillButton(
-            label: 'Back to levels',
-            color: AppColors.reading,
-            onTap: () => Navigator.pop(context, true),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _summary() => SessionSummaryView(
+        score: _score,
+        total: _questions!.length,
+        onPlayAgain: () => Navigator.of(context).pushReplacement(MaterialPageRoute(
+          builder: (_) => NumberLearningSessionScreen(level: widget.level),
+        )),
+        onBack: () => Navigator.pop(context, true),
+      );
 }

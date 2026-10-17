@@ -22,12 +22,15 @@ class NumberLearningDao {
     required int attempts,
     required int timeMs,
     required int score,
+    // Overrides level.grade — practice activities (grade 0) pass the
+    // child's own grade.
+    int? grade,
   }) async {
     final db = await _db;
     await db.insert('number_learning_attempts', {
       'profile_name': profileName,
       'session_id': sessionId,
-      'grade': level.grade,
+      'grade': grade ?? level.grade,
       'track': level.track,
       'level_id': level.id,
       'level_number': level.level,

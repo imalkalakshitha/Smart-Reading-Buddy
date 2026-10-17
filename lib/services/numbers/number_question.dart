@@ -1,3 +1,4 @@
+import '../../data/number_sentence_data.dart';
 import 'number_words.dart';
 
 /// A generated Number Learning question. Every question is built at runtime
@@ -18,6 +19,11 @@ sealed class NumberQuestion {
   /// RecognitionQuestion.colourQuantity). Null for one-step questions.
   String? get followUpPrompt => null;
   String? get followUpSpeech => null;
+
+  /// True when the activity widget does its own reading aloud (Read &
+  /// Answer highlights each word as it's spoken), so the session must not
+  /// also speak [speech] when the question starts.
+  bool get speaksItself => false;
 }
 
 /// Response for a "colour the quantity" step: how many objects are coloured.
@@ -295,4 +301,126 @@ class ComparisonQuestion extends NumberQuestion {
   String get prompt => askBigger ? 'Which number is BIGGER?' : 'Which number is SMALLER?';
   @override
   String get speech => askBigger ? 'Which number is bigger?' : 'Which number is smaller?';
+}
+
+// ── Numbers hub practice: EduPlay + Encoding, Reading ───────────────────
+
+/// Spell Number Words — see a digit, build its English word from letter
+/// [tiles] (the word's own letters plus distractors, each used once).
+class SpellWordQuestion extends NumberQuestion {
+  final int value;
+
+  /// e.g. "fifteen", "one hundred" (a space is a gap, not a tile).
+  final String word;
+  final List<String> tiles;
+
+  const SpellWordQuestion({required this.value, required this.word, required this.tiles});
+
+  /// The word's letters in order, without spaces.
+  List<String> get letters => word.replaceAll(' ', '').split('');
+
+  /// Letter-slot indices that are followed by a word gap ("one|hundred").
+  Set<int> get gapsAfter {
+    final out = <int>{};
+    var n = 0;
+    for (final ch in word.split('')) {
+      if (ch == ' ') {
+        out.add(n - 1);
+      } else {
+        n++;
+      }
+    }
+    return out;
+  }
+
+  @override
+  String get key => 'spell:$value';
+  @override
+  String get prompt => 'Spell this number';
+  @override
+  String get speech => 'Spell $word';
+}
+
+/// Templates for Read & Answer sentences.
+enum SentenceTemplate {
+  /// "Sam has 3 balls."
+  one,
+
+  /// "Sam has 3 red balls and 2 blue balls."
+  colours,
+
+  /// "Sam sees 3 cats and 2 birds."
+  twoObjects,
+}
+
+/// Which number the Read & Answer question asks for.
+enum SentenceAsk { total, first, second }
+
+/// Read & Answer — a short generated number sentence, read aloud with each
+/// word highlighted, then one question with 4 options.
+class ReadAnswerQuestion extends NumberQuestion {
+  final SentenceTemplate template;
+  final String name;
+  final NumberObject object;
+
+  /// Second object (twoObjects only).
+  final NumberObject? object2;
+
+  /// Colours (colours only).
+  final String? colour1;
+  final String? colour2;
+  final int a;
+
+  /// Second number (colours / twoObjects); null for one.
+  final int? b;
+  final SentenceAsk ask;
+  final List<int> options;
+
+  const ReadAnswerQuestion({
+    required this.template,
+    required this.name,
+    required this.object,
+    this.object2,
+    this.colour1,
+    this.colour2,
+    required this.a,
+    this.b,
+    required this.ask,
+    required this.options,
+  });
+
+  /// Every number written in the sentence.
+  List<int> get numbers => [a, ?b];
+
+  int get answer => switch (ask) {
+        SentenceAsk.total => a + (b ?? 0),
+        SentenceAsk.first => a,
+        SentenceAsk.second => b ?? 0,
+      };
+
+  String get sentence => switch (template) {
+        SentenceTemplate.one => '$name has $a ${object.forCount(a)}.',
+        SentenceTemplate.colours =>
+          '$name has $a $colour1 ${object.forCount(a)} and $b $colour2 ${object.forCount(b!)}.',
+        SentenceTemplate.twoObjects =>
+          '$name sees $a ${object.forCount(a)} and $b ${object2!.forCount(b!)}.',
+      };
+
+  String get question => switch ((template, ask)) {
+        (SentenceTemplate.one, _) => 'How many ${object.plural} does $name have?',
+        (SentenceTemplate.colours, SentenceAsk.total) => 'How many ${object.plural}?',
+        (SentenceTemplate.colours, SentenceAsk.first) => 'How many $colour1 ${object.plural}?',
+        (SentenceTemplate.colours, SentenceAsk.second) => 'How many $colour2 ${object.plural}?',
+        (SentenceTemplate.twoObjects, SentenceAsk.second) => 'How many ${object2!.plural}?',
+        (SentenceTemplate.twoObjects, _) => 'How many ${object.plural}?',
+      };
+
+  @override
+  String get key => 'read:${template.name}:${object.singular}:$a:${b ?? '-'}:${ask.name}';
+  @override
+  String get prompt => question;
+  @override
+  String get speech => '$sentence $question';
+  @override
+  bool get speaksItself => true;
 }

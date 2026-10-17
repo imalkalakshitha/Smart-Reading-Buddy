@@ -8,6 +8,7 @@ import '../../../services/numbers/level_config.dart';
 import '../../../services/numbers/level_progress.dart';
 import 'learning_widgets.dart';
 import 'number_learning_session_screen.dart';
+import 'number_match_session_screen.dart';
 
 const _activityLabels = {
   ActivityType.recognition: 'Listen and find',
@@ -18,6 +19,9 @@ const _activityLabels = {
   ActivityType.patterns: 'Patterns',
   ActivityType.calculation: 'Calculate',
   ActivityType.placeValue: 'Place value',
+  ActivityType.spellWord: 'Spell the word',
+  ActivityType.numberMatch: 'Memory match',
+  ActivityType.readAnswer: 'Read and answer',
 };
 
 /// Levels of one track with ✓ (passed) / 🔒 (locked) / ▶ (open) states.
@@ -27,12 +31,16 @@ class NumberLevelListScreen extends StatefulWidget {
   final List<LevelConfig> levels;
   final bool trackUnlocked;
 
+  /// App bar title; defaults to "Grade N · Basic/Advanced".
+  final String? title;
+
   const NumberLevelListScreen({
     super.key,
     required this.grade,
     required this.track,
     required this.levels,
     required this.trackUnlocked,
+    this.title,
   });
 
   @override
@@ -55,7 +63,9 @@ class _NumberLevelListScreenState extends State<NumberLevelListScreen> {
 
   Future<void> _play(LevelConfig level) async {
     await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => NumberLearningSessionScreen(level: level),
+      builder: (_) => level.activityType == ActivityType.numberMatch
+          ? NumberMatchSessionScreen(level: level)
+          : NumberLearningSessionScreen(level: level),
     ));
     _load();
   }
@@ -74,7 +84,7 @@ class _NumberLevelListScreenState extends State<NumberLevelListScreen> {
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
-          'Grade ${widget.grade} · $title',
+          widget.title ?? 'Grade ${widget.grade} · $title',
           style: GoogleFonts.nunito(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white),
         ),
       ),

@@ -1,0 +1,17 @@
+{
+  "_comment": "Numbers hub practice activities (EduPlay + Encoding, Reading). Same schema as levels.json, generated at runtime by lib/services/numbers/question_generator.dart (spell_word, read_answer) and lib/services/numbers/match_game.dart (number_match). grade 0 = any grade; track = the activity, so each activity has its own level chain.",
+  "version": 1,
+  "levels": [
+    { "id": "spell_1", "grade": 0, "track": "spell_words", "level": 1, "title": "Spell 0–10", "activityType": "spell_word", "min": 0, "max": 10, "distractorLetters": 2 },
+    { "id": "spell_2", "grade": 0, "track": "spell_words", "level": 2, "title": "Spell 11–20", "activityType": "spell_word", "min": 11, "max": 20, "distractorLetters": 3 },
+    { "id": "spell_3", "grade": 0, "track": "spell_words", "level": 3, "title": "Spell the tens", "activityType": "spell_word", "min": 20, "max": 100, "step": 10, "distractorLetters": 3 },
+
+    { "id": "match_1", "grade": 0, "track": "number_match", "level": 1, "title": "3 pairs", "activityType": "number_match", "min": 1, "max": 5, "pairsPerBoard": 3, "forms": ["digit", "picture"] },
+    { "id": "match_2", "grade": 0, "track": "number_match", "level": 2, "title": "4 pairs", "activityType": "number_match", "min": 1, "max": 10, "pairsPerBoard": 4, "forms": ["digit", "word"] },
+    { "id": "match_3", "grade": 0, "track": "number_match", "level": 3, "title": "6 pairs", "activityType": "number_match", "min": 1, "max": 10, "pairsPerBoard": 6, "forms": ["digit", "word", "picture"] },
+
+    { "id": "read_1", "grade": 0, "track": "read_answer", "level": 1, "title": "Numbers 1–5", "activityType": "read_answer", "min": 1, "max": 5, "optionCount": 4 },
+    { "id": "read_2", "grade": 0, "track": "read_answer", "level": 2, "title": "Numbers 1–10", "activityType": "read_answer", "min": 1, "max": 10, "optionCount": 4 },
+    { "id": "read_3", "grade": 0, "track": "read_answer", "level": 3, "title": "Numbers 10–20", "activityType": "read_answer", "min": 10, "max": 20, "optionCount": 4 }
+  ]
+}

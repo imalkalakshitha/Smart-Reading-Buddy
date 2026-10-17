@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../../models/app_colors.dart';
 import 'learning_widgets.dart';
 
-/// Digit slots + digit tiles (Build, Formation). Tap a tile to place it in
-/// the next empty slot; tap a slot to take its tile back; Check submits the
-/// digits in slot order. After a wrong answer Check stays off until the
-/// child changes something.
-class DigitTileBoard extends StatefulWidget {
+/// Digit slots + digit tiles (Build, Formation) — a [TileBoard] of digits.
+class DigitTileBoard extends StatelessWidget {
   final List<int> tiles;
   final int slotCount;
   final bool Function(List<int> digits) onSubmit;
@@ -25,10 +23,48 @@ class DigitTileBoard extends StatefulWidget {
   });
 
   @override
-  State<DigitTileBoard> createState() => _DigitTileBoardState();
+  Widget build(BuildContext context) {
+    return TileBoard(
+      tiles: [for (final t in tiles) '$t'],
+      slotCount: slotCount,
+      onSubmit: (labels) => onSubmit([for (final l in labels) int.parse(l)]),
+      enabled: enabled,
+      reveal: revealDigits?.map((d) => '$d').toList(),
+    );
+  }
 }
 
-class _DigitTileBoardState extends State<DigitTileBoard> {
+/// Answer slots + tiles (digits or letters). Tap a tile to place it in the
+/// next empty slot; tap a slot to take its tile back; Check submits the
+/// labels in slot order. After a wrong answer Check stays off until the
+/// child changes something.
+///
+/// Slot sizing follows the Encoding module's Word Building tray: slots
+/// shrink to fit the row (up to 64 px), rounded 14 px corners. [gapsAfter]
+/// adds a word gap after those slot indices ("one | hundred").
+class TileBoard extends StatefulWidget {
+  final List<String> tiles;
+  final int slotCount;
+  final bool Function(List<String> labels) onSubmit;
+  final bool enabled;
+  final List<String>? reveal;
+  final Set<int> gapsAfter;
+
+  const TileBoard({
+    super.key,
+    required this.tiles,
+    required this.slotCount,
+    required this.onSubmit,
+    required this.enabled,
+    this.reveal,
+    this.gapsAfter = const {},
+  });
+
+  @override
+  State<TileBoard> createState() => _TileBoardState();
+}
+
+class _TileBoardState extends State<TileBoard> {
   /// Tile index placed in each slot, or null.
   late final List<int?> _slots = List.filled(widget.slotCount, null);
   bool? _lastResult;
@@ -53,14 +89,14 @@ class _DigitTileBoardState extends State<DigitTileBoard> {
   }
 
   void _check() {
-    final digits = [for (final s in _slots) widget.tiles[s!]];
-    final ok = widget.onSubmit(digits);
+    final labels = [for (final s in _slots) widget.tiles[s!]];
+    final ok = widget.onSubmit(labels);
     setState(() => _lastResult = ok);
   }
 
   @override
   Widget build(BuildContext context) {
-    final reveal = widget.revealDigits;
+    final reveal = widget.reveal;
     final used = _slots.whereType<int>().toSet();
     final slotHighlight = switch (_lastResult) {
       true => LearningColors.correct,
@@ -68,43 +104,40 @@ class _DigitTileBoardState extends State<DigitTileBoard> {
       null => null,
     };
     final editable = widget.enabled && _lastResult != true;
-    // Narrower slots/tiles for 4+ digits so they fit at phone width.
-    final slotWidth = widget.slotCount >= 4 ? 56.0 : 64.0;
+    final n = widget.slotCount;
 
     return Column(
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < widget.slotCount; i++)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 5),
-                child: AnswerSlot(
-                  width: slotWidth,
-                  value: reveal != null
-                      ? '${reveal[i]}'
-                      : (_slots[i] == null ? null : '${widget.tiles[_slots[i]!]}'),
-                  highlight: reveal != null ? LearningColors.correct : slotHighlight,
-                  onTap: editable ? () => _clearSlot(i) : null,
-                ),
-              ),
-          ],
-        ),
+        LayoutBuilder(builder: (context, constraints) {
+          const spacing = 6.0;
+          const gap = 18.0;
+          final gaps = widget.gapsAfter.length;
+          final size = ((constraints.maxWidth - (n - 1) * spacing - gaps * gap) / n).clamp(26.0, 64.0);
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (var i = 0; i < n; i++) ...[
+                _slot(i, size, reveal, slotHighlight, editable),
+                if (i < n - 1) SizedBox(width: widget.gapsAfter.contains(i) ? gap : spacing),
+              ],
+            ],
+          );
+        }),
         const SizedBox(height: 32),
         Wrap(
           alignment: WrapAlignment.center,
-          spacing: 14,
-          runSpacing: 14,
+          spacing: 12,
+          runSpacing: 12,
           children: [
             for (var t = 0; t < widget.tiles.length; t++)
               AnimatedOpacity(
                 duration: const Duration(milliseconds: 150),
                 opacity: used.contains(t) ? 0.2 : 1,
                 child: SizedBox(
-                  width: 72,
+                  width: 64,
                   child: BigNumberButton(
-                    label: '${widget.tiles[t]}',
-                    fontSize: 36,
+                    label: widget.tiles[t],
+                    fontSize: 34,
                     onTap: editable && !used.contains(t) ? () => _placeTile(t) : null,
                   ),
                 ),
@@ -119,6 +152,43 @@ class _DigitTileBoardState extends State<DigitTileBoard> {
             onTap: editable && _full && _lastResult == null ? _check : null,
           ),
       ],
+    );
+  }
+
+  Widget _slot(int i, double size, List<String>? reveal, Color? highlight, bool editable) {
+    final label = reveal != null ? reveal[i] : (_slots[i] == null ? null : widget.tiles[_slots[i]!]);
+    final border = reveal != null ? LearningColors.correct : highlight;
+    final filled = label != null;
+    return GestureDetector(
+      onTap: editable ? () => _clearSlot(i) : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: size,
+        height: size * 1.15,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled ? AppColors.primary.withValues(alpha: 0.10) : Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: border ?? (filled ? AppColors.primary : AppColors.primaryLight),
+            width: border != null ? 3 : 2,
+          ),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Text(
+              label ?? '',
+              style: GoogleFonts.nunito(
+                fontSize: 34,
+                fontWeight: FontWeight.w900,
+                color: AppColors.primaryDark,
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

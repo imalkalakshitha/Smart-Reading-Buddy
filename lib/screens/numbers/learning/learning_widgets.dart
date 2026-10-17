@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -33,11 +34,65 @@ class NumberSpeaker {
 
   Future<void> say(String text) async {
     await _init();
+    _runId++; // detaches any earlier sayWithProgress word callback
+    _clearProgress();
     await _tts.stop();
     await _tts.speak(text);
   }
 
-  Future<void> stop() => _tts.stop();
+  Timer? _fallbackTimer;
+  int _runId = 0;
+
+  /// Speaks [text], calling [onWord] with the character range of each word
+  /// as it's spoken (from the TTS engine's progress events), then
+  /// [onWord](null) when done. Engines that don't report progress get a
+  /// timer that steps through the words at roughly the speaking rate.
+  Future<void> sayWithProgress(String text, void Function(TextRange? word) onWord) async {
+    await _init();
+    _clearProgress();
+    await _tts.stop();
+    final run = ++_runId;
+    var gotProgress = false;
+    _tts.setProgressHandler((_, start, end, _) {
+      if (run != _runId) return;
+      gotProgress = true;
+      _fallbackTimer?.cancel();
+      onWord(TextRange(start: start, end: end));
+    });
+    final words = RegExp(r'\S+').allMatches(text).toList();
+    var w = 0;
+    _fallbackTimer = Timer(const Duration(milliseconds: 700), () {
+      if (gotProgress || run != _runId) return;
+      if (words.isNotEmpty) onWord(TextRange(start: words[0].start, end: words[0].end));
+      w = 1;
+      _fallbackTimer = Timer.periodic(const Duration(milliseconds: 520), (t) {
+        if (run != _runId || w >= words.length) {
+          t.cancel();
+          return;
+        }
+        onWord(TextRange(start: words[w].start, end: words[w].end));
+        w++;
+      });
+    });
+    await _tts.awaitSpeakCompletion(true);
+    await _tts.speak(text);
+    await _tts.awaitSpeakCompletion(false);
+    if (run == _runId) {
+      _clearProgress();
+      onWord(null);
+    }
+  }
+
+  void _clearProgress() {
+    _fallbackTimer?.cancel();
+    _fallbackTimer = null;
+  }
+
+  Future<void> stop() {
+    _runId++;
+    _clearProgress();
+    return _tts.stop();
+  }
 }
 
 /// Short instruction with a replay-audio button.
