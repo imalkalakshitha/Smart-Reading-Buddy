@@ -7,7 +7,10 @@ import '../../dao/number_practice_dao.dart';
 import '../../models/app_colors.dart';
 import '../../models/app_state.dart';
 import '../../services/number_answer_checker.dart';
+import '../../services/numbers/ran_row_listener.dart';
+import '../../services/numbers/ran_row_tracker.dart';
 import '../../services/timed_reading_speech_bridge.dart';
+import 'learning/learning_widgets.dart' show LearningColors;
 import 'numbers_hub_screen.dart' show EnglishOnlyNote;
 
 class _RowResult {
@@ -22,12 +25,14 @@ class _RowResult {
 /// digit next to the same digit (left/right, across the row break, or
 /// above/below).
 ///
-/// Recorded one row at a time through TimedReadingSpeechBridge (the same
-/// STT path Timed Reading uses): Android's recognizer ends a session after
-/// ~3s of silence and drops words on long utterances, so one 50-digit
-/// recording is unreliable. Each row's time runs from the FIRST STT
-/// partial result (falling back to the Start tap if none arrives) to the
-/// Done tap, exactly like a Timed Reading unit; the total is their sum.
+/// Recorded one row at a time by RanRowListener: speech_to_text in
+/// dictation mode, restarted immediately (transcript appended) whenever
+/// Android ends the session early. A row ends on its own — after ~2 s of
+/// silence once a digit was heard, or when all 10 digits are recognised —
+/// so the child doesn't need to tap Done (it's still there as a fallback).
+/// Each row's time runs from the first partial result to the last
+/// recognised speech (the silence wait isn't counted); the total is their
+/// sum. Digits are only marked once the row has ended.
 class RapidDigitNamingScreen extends StatefulWidget {
   const RapidDigitNamingScreen({super.key});
 
@@ -40,7 +45,9 @@ enum _Phase { checking, unavailable, ready, recording, scoring, finished }
 class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   static const int _rows = 5;
   static const int _cols = 10;
-  static const _maxRowDuration = Duration(seconds: 30);
+  // Backstop only — rows normally end on silence or once all 10 digits
+  // are heard.
+  static const _maxRowDuration = Duration(seconds: 40);
 
   late List<List<int>> _grid;
   final List<_RowResult> _results = [];
@@ -51,8 +58,8 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   final Stopwatch _stopwatch = Stopwatch();
   Timer? _uiTimer;
   Timer? _maxRowTimer;
-  int _rowStartMs = 0;
-  int? _firstPartialMs;
+  RanRowTracker? _tracker;
+  RanRowListener? _listener;
   bool _saved = false;
 
   @override
@@ -66,6 +73,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   void dispose() {
     _uiTimer?.cancel();
     _maxRowTimer?.cancel();
+    _listener?.cancel();
     _stopwatch.stop();
     super.dispose();
   }
@@ -102,7 +110,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   /// Live clock: finished rows plus the current row since speech began.
   int get _displayMs {
     if (_phase != _Phase.recording) return _totalMs;
-    final start = _firstPartialMs;
+    final start = _tracker?.firstPartialMs;
     if (start == null) return _totalMs;
     return _totalMs + (_stopwatch.elapsedMilliseconds - start);
   }
@@ -110,40 +118,46 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   Future<void> _startRow() async {
     if (_phase != _Phase.ready) return;
     if (!_stopwatch.isRunning) _stopwatch.start();
+    final tracker = RanRowTracker(expectedCount: _cols);
+    final listener = RanRowListener(
+      tracker: tracker,
+      now: () => _stopwatch.elapsedMilliseconds,
+      onChanged: () {
+        if (mounted) setState(() {});
+      },
+      onEnded: _onRowEnded,
+    );
     setState(() {
       _phase = _Phase.recording;
       _notice = null;
-      _firstPartialMs = null;
-      _rowStartMs = _stopwatch.elapsedMilliseconds;
+      _tracker = tracker;
+      _listener = listener;
     });
     _uiTimer?.cancel();
     _uiTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       if (mounted) setState(() {});
     });
     _maxRowTimer?.cancel();
-    _maxRowTimer = Timer(_maxRowDuration, _finishRow);
-    await TimedReadingSpeechBridge.startRecording(
-      lang: 'en',
-      onFirstPartialResult: () => _firstPartialMs ??= _stopwatch.elapsedMilliseconds,
-    );
+    _maxRowTimer = Timer(_maxRowDuration, () => listener.stop(RanRowEnd.timeout));
+    await listener.start();
   }
 
-  Future<void> _finishRow() async {
+  /// Optional Done tap — rows normally end by themselves.
+  void _doneTapped() {
     if (_phase != _Phase.recording) return;
-    final doneMs = _stopwatch.elapsedMilliseconds;
+    setState(() => _phase = _Phase.scoring);
+    _listener?.stop(RanRowEnd.manual);
+  }
+
+  void _onRowEnded(RanRowEnd reason) {
     _maxRowTimer?.cancel();
     _uiTimer?.cancel();
-    setState(() => _phase = _Phase.scoring);
-
-    final expected = _grid[_row];
-    final stt = await TimedReadingSpeechBridge.stopAndGetTranscript(
-      sentenceText: expected.join(' '),
-      lang: 'en',
-      gradeNum: AppState.grade == 'grade4' ? 4 : 3,
-    );
     if (!mounted) return;
+    final tracker = _tracker!;
+    final expected = _grid[_row];
+    final heard = tracker.digits;
 
-    if (stt.noSpeech) {
+    if (heard.isEmpty) {
       setState(() {
         _phase = _Phase.ready;
         _notice = "We couldn't hear you — let's try this row again! 🎤";
@@ -151,16 +165,15 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
       return;
     }
 
-    final heard = NumberAnswerChecker.parseDigits(stt.transcript);
     final alignment = NumberAnswerChecker.alignDigits(expected, heard);
-    final elapsed = doneMs - (_firstPartialMs ?? _rowStartMs);
+    final elapsed = tracker.elapsedMs;
     // ignore: avoid_print
-    print('[RAN] row=${_row + 1} expected=${expected.join()} heard=${heard.join()} '
-        'correct=${alignment.correct} errors=${alignment.errors} '
-        'elapsedMs=$elapsed (fromPartial=${_firstPartialMs != null})');
+    print('[RAN] row=${_row + 1} end=${reason.name} expected=${expected.join()} heard=${heard.join()} '
+        'correct=${alignment.correct} errors=${alignment.errors} elapsedMs=$elapsed '
+        'restarts=${_listener?.restarts} transcript="${tracker.transcript}"');
 
     setState(() {
-      _results.add(_RowResult(alignment, elapsed, stt.transcript ?? ''));
+      _results.add(_RowResult(alignment, elapsed, tracker.transcript));
       if (_row < _rows - 1) {
         _row++;
         _phase = _Phase.ready;
@@ -335,7 +348,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
           ),
           Text(
             recording
-                ? 'Read the row out loud, then tap Done!'
+                ? "Read the row out loud — I'll stop listening when you finish."
                 : (_row == 0 && _results.isEmpty
                     ? 'Read each number as fast as you can. Ready?'
                     : 'Great! Tap to read the next row.'),
@@ -348,7 +361,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: recording ? _finishRow : (scoring ? null : _startRow),
+            onTap: recording ? _doneTapped : (scoring ? null : _startRow),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 120,
@@ -382,13 +395,13 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          recording ? Icons.check_rounded : Icons.mic_rounded,
+                          recording ? Icons.hearing_rounded : Icons.mic_rounded,
                           size: 42,
                           color: recording ? Colors.white : AppColors.pronunciation,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          recording ? 'Done' : (_results.isEmpty ? 'Start' : 'Next row'),
+                          recording ? 'Listening…' : (_results.isEmpty ? 'Start' : 'Next row'),
                           style: GoogleFonts.nunito(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,
@@ -420,36 +433,43 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
           width: 2,
         ),
       ),
+      // One small box per digit with clear gaps, so a row doesn't read as
+      // one long number. Marking (green / soft orange) only once the row
+      // has ended — never while the child is still reading.
       child: Row(
         children: [
-          for (var c = 0; c < _cols; c++)
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 1.5),
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                decoration: BoxDecoration(
-                  color: done
-                      ? (_results[r].alignment.correctAt[c]
-                          ? AppColors.success.withValues(alpha: 0.18)
-                          : AppColors.wrong.withValues(alpha: 0.18))
-                      : null,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: FittedBox(
-                  child: Text(
-                    '${_grid[r][c]}',
-                    style: GoogleFonts.nunito(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: (isCurrent || done)
-                          ? AppColors.textPrimary
-                          : AppColors.textSecondary.withValues(alpha: 0.35),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          for (var c = 0; c < _cols; c++) Expanded(child: _digitBox(r, c, isCurrent: isCurrent, done: done)),
         ],
+      ),
+    );
+  }
+
+  Widget _digitBox(int r, int c, {required bool isCurrent, required bool done}) {
+    final correct = done && _results[r].alignment.correctAt[c];
+    final (Color bg, Color border) = done
+        ? (correct
+            ? (LearningColors.correctSurface, LearningColors.correct)
+            : (LearningColors.wrongFill, LearningColors.wrongBorder))
+        : (isCurrent ? (Colors.white, AppColors.primaryLight) : (const Color(0xFFF7F8F7), AppColors.divider));
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 2.5),
+      height: 42,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border, width: done || isCurrent ? 1.5 : 1),
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(
+          '${_grid[r][c]}',
+          style: GoogleFonts.nunito(
+            fontSize: 26,
+            fontWeight: FontWeight.w900,
+            color: (isCurrent || done) ? AppColors.textPrimary : AppColors.textSecondary.withValues(alpha: 0.35),
+          ),
+        ),
       ),
     );
   }
