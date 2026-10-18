@@ -95,3 +95,8 @@ reorganised: `core/models/word_data.dart`,
   the shared mapping. Fixing the mapping itself changes what
   Pronunciation shows, so it should be agreed with the Pronunciation
   owner first.
+- **Same mapping, IPA syllables starting with ð:** `ð` is matched only as
+  a whole symbol, so a syllable such as `'ðə'` ("the") falls through to
+  the open-mid picture instead of the tongue between the teeth (the
+  first-character fallback has no `ð` / `θ` case). Same owner, same
+  separate change as above.
