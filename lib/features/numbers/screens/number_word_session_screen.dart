@@ -9,21 +9,14 @@ import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
 import 'package:smart_reading_buddy/core/services/speech/hybrid_pronunciation_scorer.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_answer_checker.dart';
-import 'package:smart_reading_buddy/features/numbers/services/number_mouth.dart';
 import 'package:smart_reading_buddy/features/numbers/services/numbers_buddy.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/numbers_hub_screen.dart' show EnglishOnlyNote;
 import 'package:smart_reading_buddy/features/numbers/screens/learning/learning_widgets.dart' show LearningColors;
-import 'package:smart_reading_buddy/features/numbers/screens/widgets/number_mouth_strip.dart';
 
 /// Number Word Pronunciation — shows a digit ("15"), the child says the
 /// English word, scored by HybridPronunciationScorer (always 'en') and then
 /// re-checked by NumberAnswerChecker for digit transcripts and -teen/-ty
 /// confusion. Recording/VAD behaviour mirrors PronunciationSessionScreen.
-///
-/// The number card shows the word's mouth shapes (NumberMouthStrip),
-/// stepping through them while "Listen" plays, with the stressed syllable
-/// highlighted. After a -teen/-ty mix-up it shows what the child said next
-/// to the target (MouthContrast), with "Hear both".
 class NumberWordSessionScreen extends StatefulWidget {
   final String levelKey;
   final String levelName;
@@ -86,33 +79,12 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   bool _gettingReady = false;
   bool _wrongOnItem = false;
 
-  // Mouth shapes: the target word's (also the right side of the -teen/-ty
-  // contrast) and, after a mix-up, the word the child said.
-  final _targetMouth = MouthPlayer();
-  final _heardMouth = MouthPlayer();
-
-  /// The number heard in a -teen/-ty mix-up, shown next to the target until
-  /// the next try or number.
-  int? _contrastHeard;
-  bool _replaying = false;
-  int _replayRun = 0;
-
   void _setSpeaking(bool v) {
     _speaking = v;
     _ttsSpeaking.value = v;
   }
 
   NumberItem get _current => _items[_index];
-
-  NumberMouth? get _mouth => NumberMouth.forNumber(_current.value);
-
-  /// Ends a Listen / "Hear both" playback's mouth animation.
-  void _stopMouths() {
-    _replayRun++;
-    _replaying = false;
-    _targetMouth.stop();
-    _heardMouth.stop();
-  }
 
   @override
   void initState() {
@@ -128,8 +100,7 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
     await _tts.setSpeechRate(0.38);
     await _tts.setPitch(1.0);
     _tts.setCompletionHandler(() {
-      // "Hear both" speaks two words with a pause; it clears the flag itself.
-      if (mounted && !_replaying) setState(() => _setSpeaking(false));
+      if (mounted) setState(() => _setSpeaking(false));
     });
   }
 
@@ -138,8 +109,6 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
     _buddy.detach(this);
     _ttsSpeaking.dispose();
     _micOn.dispose();
-    _targetMouth.dispose();
-    _heardMouth.dispose();
     _autoStopTimer?.cancel();
     _vadSub?.cancel();
     _partialSub?.cancel();
@@ -150,50 +119,13 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   Future<void> _speak() async {
     if (_recording || _scoring) return;
     if (_speaking) {
-      _stopMouths();
       await _tts.stop();
       setState(() => _setSpeaking(false));
       return;
     }
-    _stopMouths();
-    final run = _replayRun;
     setState(() => _setSpeaking(true));
-    final mouth = _mouth;
-    if (mouth != null) _targetMouth.play(mouth);
     await _tts.speak(_current.word);
-    if (run == _replayRun) _targetMouth.finish();
     if (mounted) setState(() => _setSpeaking(false));
-  }
-
-  /// "Hear both": the word the child said, a short pause, then the target,
-  /// each side's mouth animating in turn.
-  Future<void> _replayContrast() async {
-    final heard = _contrastHeard;
-    if (heard == null || _recording || _scoring) return;
-    _stopMouths();
-    await _tts.stop();
-    if (!mounted) return;
-    final run = _replayRun;
-    final heardMouth = NumberMouth.forNumber(heard);
-    final targetMouth = _mouth;
-    setState(() {
-      _replaying = true;
-      _setSpeaking(true);
-    });
-    if (heardMouth != null) _heardMouth.play(heardMouth);
-    await _tts.speak(NumbersData.wordFor(heard) ?? '$heard');
-    if (run != _replayRun || !mounted) return;
-    _heardMouth.finish();
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (run != _replayRun || !mounted) return;
-    if (targetMouth != null) _targetMouth.play(targetMouth);
-    await _tts.speak(_current.word);
-    if (run != _replayRun || !mounted) return;
-    _targetMouth.finish();
-    setState(() {
-      _replaying = false;
-      _setSpeaking(false);
-    });
   }
 
   Future<void> _onMicTap() async {
@@ -209,11 +141,9 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
       if (_showResult || _scoring || _recording) return;
     }
     _micOn.value = true;
-    _stopMouths();
     _tts.stop();
     setState(() {
       _recording = true;
-      _contrastHeard = null;
       _setSpeaking(false);
     });
     _vadHasSpokenOnce = false;
@@ -307,8 +237,6 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
         _failCount++;
         if (verdict.teenTyConfusion) _teenTyCount++;
       }
-      final heard = verdict.heardValue;
-      _contrastHeard = verdict.teenTyConfusion && heard != null && heard != _current.value ? heard : null;
     });
 
     final isOk = verdict.verdict == 'OK';
@@ -346,10 +274,8 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
       _buddy.sessionEnded(passed: true); // finishing a set → SESSION_END
       return;
     }
-    _stopMouths();
     setState(() {
       _index++;
-      _contrastHeard = null;
       _failCount = 0;
       _attemptNumber = 0;
       _showResult = false;
@@ -360,9 +286,7 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   void _restart() {
     _streak.miss();
     _wrongOnItem = false;
-    _stopMouths();
     setState(() {
-      _contrastHeard = null;
       _items = NumbersData.forLevel(widget.levelKey)..shuffle();
       _index = 0;
       _failCount = 0;
@@ -420,8 +344,7 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   }
 
   Widget _buildContent() {
-    // The -teen/-ty contrast already shows the word ("Say 15 · fif-TEEN").
-    final showHint = _failCount > 0 && _contrastHeard == null;
+    final showHint = _failCount > 0;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -521,7 +444,6 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
                     ),
                   ),
                 ),
-                _mouthArea(),
               ],
             ),
           ).animate(key: ValueKey(_index)).fadeIn().scale(
@@ -628,32 +550,6 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
           ),
           const SizedBox(height: 60),
         ],
-      ),
-    );
-  }
-
-  /// The target's mouth shapes, or — after a -teen/-ty mix-up — the
-  /// child's word next to the target.
-  Widget _mouthArea() {
-    final target = _mouth;
-    if (target == null) return const SizedBox.shrink();
-    final heard = _contrastHeard;
-    final heardMouth = heard == null ? null : NumberMouth.forNumber(heard);
-    return AnimatedSize(
-      duration: const Duration(milliseconds: 250),
-      child: Padding(
-        padding: const EdgeInsets.only(top: 16),
-        child: heard != null && heardMouth != null
-            ? MouthContrast(
-                heard: heard,
-                target: _current.value,
-                heardMouth: heardMouth,
-                targetMouth: target,
-                heardPlayer: _heardMouth,
-                targetPlayer: _targetMouth,
-                onReplay: _recording || _scoring ? null : _replayContrast,
-              )
-            : NumberMouthStrip(mouth: target, player: _targetMouth),
       ),
     );
   }
