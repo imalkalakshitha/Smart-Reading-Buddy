@@ -26,20 +26,27 @@ class FormationActivity extends StatelessWidget {
     final hasZero = question.digits.contains(0);
     return Column(
       children: [
-        Text(question.highest ? '🐘' : '🐭', style: const TextStyle(fontSize: 56)),
-        const SizedBox(height: 4),
-        Text(
-          question.highest ? 'Biggest number' : 'Smallest number',
-          style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
-        ),
-        if (!question.highest && hasZero) ...[
-          const SizedBox(height: 4),
-          Text(
-            'Tip: a number can’t start with 0',
-            style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: LearningColors.accent),
+        VisualCard(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(question.highest ? '🐘' : '🐭', style: const TextStyle(fontSize: 56)),
+              const SizedBox(height: 4),
+              Text(
+                question.highest ? 'Biggest number' : 'Smallest number',
+                style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
+              ),
+              if (!question.highest && hasZero) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Tip: a number can’t start with 0',
+                  style: GoogleFonts.nunito(fontSize: 14, fontWeight: FontWeight.w700, color: LearningColors.accent),
+                ),
+              ],
+            ],
           ),
-        ],
-        const SizedBox(height: 18),
+        ),
+        const SizedBox(height: kBlockGap),
         DigitTileBoard(
           tiles: question.digits,
           slotCount: question.digits.length,

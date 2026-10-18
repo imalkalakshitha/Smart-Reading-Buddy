@@ -33,37 +33,46 @@ class PlaceValueActivity extends StatelessWidget {
     };
     return Column(
       children: [
-        // The number, with the asked-about digit underlined once revealed.
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (var i = 0; i < digits.length; i++)
-              Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: revealed && i == placeIndex ? LearningColors.correct : Colors.transparent,
-                      width: 5,
+        VisualCard(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // The number, with the asked-about digit underlined once revealed.
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var i = 0; i < digits.length; i++)
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(
+                            color: revealed && i == placeIndex ? LearningColors.correct : Colors.transparent,
+                            width: 5,
+                          ),
+                        ),
+                      ),
+                      child: Text(
+                        digits[i],
+                        style: GoogleFonts.nunito(
+                            fontSize: 56, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
+                      ),
                     ),
-                  ),
-                ),
-                child: Text(
-                  digits[i],
-                  style: GoogleFonts.nunito(fontSize: 64, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
-                ),
+                ],
               ),
-          ],
+              const SizedBox(height: 8),
+              BaseTenBlocks(
+                hundreds: (q.number ~/ 100) % 10,
+                tens: (q.number ~/ 10) % 10,
+                ones: q.number % 10,
+                chart: q.number >= 100,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 12),
-        BaseTenBlocks(
-          hundreds: (q.number ~/ 100) % 10,
-          tens: (q.number ~/ 10) % 10,
-          ones: q.number % 10,
-          chart: q.number >= 100,
-        ),
-        const SizedBox(height: 24),
+        const SizedBox(height: kBlockGap),
         ChoiceOptions(
           options: q.options,
           answer: q.answer,
@@ -96,8 +105,8 @@ class ComparisonActivity extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(question.askBigger ? '🐘' : '🐭', style: const TextStyle(fontSize: 64)),
-        const SizedBox(height: 24),
+        VisualCard(child: Text(question.askBigger ? '🐘' : '🐭', style: const TextStyle(fontSize: 64))),
+        const SizedBox(height: kBlockGap),
         ChoiceOptions(
           options: question.options,
           answer: question.answer,

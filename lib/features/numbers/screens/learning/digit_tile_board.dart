@@ -40,7 +40,7 @@ class DigitTileBoard extends StatelessWidget {
 /// labels in slot order. A wrong answer shakes the row and marks the slots
 /// (peach fill, darker orange border, 🔄) for [kWrongResetDelay], then the
 /// marking clears; the tiles stay so the child can fix them, and Check stays
-/// off until something changes.
+/// off until something changes. A right answer pops the row with a ✓.
 ///
 /// Slot sizing follows the Encoding module's Word Building tray: slots
 /// shrink to fit the row (up to 64 px), rounded 14 px corners. [gapsAfter]
@@ -128,7 +128,9 @@ class _TileBoardState extends State<TileBoard> {
     final reveal = widget.reveal;
     final used = _slots.whereType<int>().toSet();
     final slotHighlight = _correct ? LearningColors.correct : (_wrongShown ? LearningColors.wrongBorder : null);
-    final editable = widget.enabled && !_correct;
+    // Locked while a wrong answer is marked: an edit would clear the mark
+    // early, leaving "Let's try again!" with nothing marked.
+    final editable = widget.enabled && !_correct && !_wrongShown;
     final n = widget.slotCount;
 
     return Column(
@@ -147,13 +149,10 @@ class _TileBoardState extends State<TileBoard> {
               ],
             ],
           );
-          if (!_wrongShown) return row;
-          return gentleShake(Stack(
-            clipBehavior: Clip.none,
-            children: [row, const Positioned(top: -12, right: 0, child: RetryBadge())],
-          ));
+          if (_correct) return correctMarked(row, correct: true);
+          return wrongMarked(row, wrong: _wrongShown);
         }),
-        const SizedBox(height: 32),
+        const SizedBox(height: kBlockGap),
         Wrap(
           alignment: WrapAlignment.center,
           spacing: 12,
@@ -174,7 +173,7 @@ class _TileBoardState extends State<TileBoard> {
               ),
           ],
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: kBlockGap),
         if (reveal == null)
           PillButton(
             label: 'Check ✓',

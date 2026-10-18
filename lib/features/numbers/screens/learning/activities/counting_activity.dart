@@ -24,25 +24,17 @@ class CountingActivity extends StatelessWidget {
     final q = question;
     return Column(
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-          ),
-          child: Center(
-            child: q.grouped
-                ? BaseTenBlocks(
-                    hundreds: q.hundreds,
-                    tens: q.tens,
-                    ones: q.ones,
-                    chart: q.placeValueChart,
-                  )
-                : ObjectGrid(count: q.answer, object: q.object, size: 44),
-          ),
+        VisualCard(
+          child: q.grouped
+              ? BaseTenBlocks(
+                  hundreds: q.hundreds,
+                  tens: q.tens,
+                  ones: q.ones,
+                  chart: q.placeValueChart,
+                )
+              : ObjectGrid(count: q.answer, object: q.object, size: 44),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: kBlockGap),
         ChoiceOptions(
           options: q.options,
           answer: q.answer,

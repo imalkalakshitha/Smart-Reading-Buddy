@@ -25,24 +25,14 @@ class SpellWordActivity extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Container(
-          width: 140,
-          height: 120,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.primaryLight, width: 1.5),
-            boxShadow: const [
-              BoxShadow(color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 5)),
-            ],
-          ),
+        VisualCard(
+          minHeight: 120,
           child: Text(
             '${question.value}',
             style: GoogleFonts.nunito(fontSize: 72, fontWeight: FontWeight.w900, color: AppColors.textPrimary),
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: kBlockGap),
         TileBoard(
           tiles: question.tiles,
           slotCount: question.letters.length,

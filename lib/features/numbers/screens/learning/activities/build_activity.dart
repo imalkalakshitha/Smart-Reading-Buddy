@@ -22,8 +22,8 @@ class BuildActivity extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        const Text('🧱', style: TextStyle(fontSize: 56)),
-        const SizedBox(height: 20),
+        const VisualCard(child: Text('🧱', style: TextStyle(fontSize: 56))),
+        const SizedBox(height: kBlockGap),
         DigitTileBoard(
           tiles: question.tiles,
           slotCount: question.digitCount,

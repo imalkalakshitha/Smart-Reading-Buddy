@@ -59,27 +59,19 @@ class _ReadAnswerActivityState extends State<ReadAnswerActivity> {
     final q = widget.question;
     return Column(
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: AppColors.primaryLight, width: 1.5),
-            boxShadow: const [
-              BoxShadow(color: AppColors.shadow, blurRadius: 12, offset: Offset(0, 5)),
-            ],
-          ),
+        VisualCard(
+          padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               const Text('📖', style: TextStyle(fontSize: 36)),
               const SizedBox(height: 8),
-              _sentence(q.sentence),
+              SizedBox(width: double.infinity, child: _sentence(q.sentence)),
             ],
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: kBlockGap),
         ChoiceOptions(
           options: q.options,
           answer: q.answer,

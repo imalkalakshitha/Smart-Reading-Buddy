@@ -50,7 +50,7 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
   int _pairsDone = 0;
   int _score = 0;
   DateTime _lastMatchAt = DateTime.now();
-  /// Inline feedback card under the instruction (see FeedbackSlot).
+  /// Feedback shown over the board (see CardFeedbackOverlay).
   FeedbackMessage? _message;
   int _messageId = 0;
   Timer? _messageTimer;
@@ -240,55 +240,65 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
     final cols = cards.length <= 6 ? 3 : 4;
     return Column(
       children: [
-        // Fixed top: progress, the instruction, and the feedback card slot.
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: Column(
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: _pairsDone / MatchBoardGenerator.pairsPerSession,
-                        minHeight: 10,
-                        backgroundColor: AppColors.divider,
-                        valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
-                      ),
-                    ),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: _pairsDone / MatchBoardGenerator.pairsPerSession,
+                    minHeight: 10,
+                    backgroundColor: AppColors.divider,
+                    valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Pairs $_pairsDone / ${MatchBoardGenerator.pairsPerSession}',
-                    style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 18),
-              InstructionBar(prompt: 'Find the pairs', onReplay: () => _speaker.say(_instruction)),
-              FeedbackSlot(message: _message),
+              const SizedBox(width: 12),
+              Text(
+                'Pairs $_pairsDone / ${MatchBoardGenerator.pairsPerSession}',
+                style: GoogleFonts.nunito(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textSecondary),
+              ),
             ],
           ),
         ),
-        // The board, centred vertically in the space left.
+        // The instruction and the board as one block, centred vertically in
+        // the space left (scrolls only if it's taller).
         Expanded(
           child: LayoutBuilder(
             builder: (context, box) => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              padding: const EdgeInsets.fromLTRB(20, kBlockGap, 20, 20),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: (box.maxHeight - 20).clamp(0.0, double.infinity)),
+                constraints:
+                    BoxConstraints(minHeight: (box.maxHeight - kBlockGap - 20).clamp(0.0, double.infinity)),
                 child: Center(
-                  child: GridView.count(
-                    key: ValueKey(_boardIndex),
-                    crossAxisCount: cols,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    mainAxisSpacing: 12,
-                    crossAxisSpacing: 12,
-                    childAspectRatio: 0.8,
-                    children: [for (var i = 0; i < cards.length; i++) _card(i)],
-                  ).animate(key: ValueKey('b$_boardIndex')).fadeIn(duration: 300.ms),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InstructionBar(prompt: 'Find the pairs', onReplay: () => _speaker.say(_instruction)),
+                      const SizedBox(height: kBlockGap),
+                      // Feedback shows over the board without covering it
+                      // (no tint, taps pass through), so play carries on.
+                      Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          GridView.count(
+                            key: ValueKey(_boardIndex),
+                            crossAxisCount: cols,
+                            shrinkWrap: true,
+                            clipBehavior: Clip.none,
+                            physics: const NeverScrollableScrollPhysics(),
+                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 12,
+                            childAspectRatio: 0.8,
+                            children: [for (var i = 0; i < cards.length; i++) _card(i)],
+                          ).animate(key: ValueKey('b$_boardIndex')).fadeIn(duration: 300.ms),
+                          Positioned.fill(child: CardFeedbackOverlay(message: _message, scrim: false)),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -329,6 +339,13 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
         ),
       ),
     );
+    // A matched pair: ✓ + a quick pop (as it's matched).
+    if (matched) {
+      return correctPop(Stack(
+        clipBehavior: Clip.none,
+        children: [tile, const Positioned(top: -8, right: -8, child: CorrectBadge())],
+      ));
+    }
     if (!_peek.contains(i)) return tile;
     // A mismatched pair: 🔄 + one gentle shake, then both flip back.
     return gentleShake(Stack(

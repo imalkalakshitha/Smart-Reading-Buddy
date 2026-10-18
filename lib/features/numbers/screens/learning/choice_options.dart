@@ -4,8 +4,8 @@ import 'package:smart_reading_buddy/features/numbers/screens/learning/learning_w
 
 /// Up to 4 big number options. A wrong pick is marked softly (peach fill,
 /// darker orange border, 🔄, a gentle shake) and resets after
-/// [kWrongResetDelay] so the child can try again; the right pick (or the
-/// revealed answer) turns green.
+/// [kWrongResetDelay] so the child can try again; the right pick turns
+/// green with a ✓ and a pop, the revealed answer a softer green.
 class ChoiceOptions extends StatefulWidget {
   final List<int> options;
   final int answer;
@@ -39,9 +39,11 @@ class _ChoiceOptionsState extends State<ChoiceOptions> with WrongPickReset<Choic
           BigNumberButton(
             label: '$o',
             fontSize: widget.fontSize,
-            look: o == _correct || (widget.revealed && o == widget.answer)
+            look: o == _correct
                 ? OptionLook.correct
-                : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
+                : widget.revealed && o == widget.answer
+                    ? OptionLook.revealed
+                    : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
             onTap: widget.enabled && _correct == null && !isMarkedWrong(o)
                 ? () {
                     final ok = widget.onSubmit(o);

@@ -27,24 +27,29 @@ class CalculationActivity extends StatelessWidget {
     final q = question;
     return Column(
       children: [
-        if (q.visual)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(22)),
-            child: _visual(q),
-          ),
-        const SizedBox(height: 16),
-        Text(
-          '${q.a} ${q.symbol} ${q.b} = ${revealed ? q.answer : '?'}',
-          style: GoogleFonts.nunito(
-            fontSize: 40,
-            fontWeight: FontWeight.w900,
-            color: AppColors.textPrimary,
-            letterSpacing: 2,
+        // The picture (when there is one) and the sum, on one card.
+        VisualCard(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (q.visual) ...[_visual(q), const SizedBox(height: 12)],
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${q.a} ${q.symbol} ${q.b} = ${revealed ? q.answer : '?'}',
+                  style: GoogleFonts.nunito(
+                    fontSize: 40,
+                    fontWeight: FontWeight.w900,
+                    color: AppColors.textPrimary,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: kBlockGap),
         ChoiceOptions(
           options: q.options,
           answer: q.answer,

@@ -58,45 +58,50 @@ class _OrderingActivityState extends State<OrderingActivity> with WrongCheckRese
     final q = widget.question;
     final loaded = _cars.whereType<int>().toSet();
     final highlight = checkHighlight;
-    final editable = widget.enabled && !checkedCorrect;
+    // Locked while a wrong answer is marked (see WrongCheckReset).
+    final editable = widget.enabled && !checkedCorrect && !wrongShown;
     final answer = q.answer;
-    final small = Text('smallest',
-        style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textSecondary));
-    final big = Text('biggest',
-        style: GoogleFonts.nunito(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textSecondary));
+    final train = Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        const Text('🚂', style: TextStyle(fontSize: 44)),
+        const SizedBox(width: 6),
+        for (var i = 0; i < q.items.length; i++) ...[
+          Expanded(
+            child: AnswerSlot(
+              width: double.infinity,
+              value: widget.revealed
+                  ? '${answer[i]}'
+                  : (_cars[i] == null ? null : '${q.items[_cars[i]!]}'),
+              highlight: widget.revealed ? LearningColors.correct : highlight,
+              wrong: wrongShown && !widget.revealed,
+              onTap: editable ? () => _unload(i) : null,
+            ),
+          ),
+          if (i < q.items.length - 1) const SizedBox(width: 6),
+        ],
+      ],
+    );
 
     return Column(
       children: [
-        wrongMarked(wrong: wrongShown && !widget.revealed, Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            const Text('🚂', style: TextStyle(fontSize: 44)),
-            const SizedBox(width: 6),
-            for (var i = 0; i < q.items.length; i++) ...[
-              Expanded(
-                child: AnswerSlot(
-                  width: double.infinity,
-                  value: widget.revealed
-                      ? '${answer[i]}'
-                      : (_cars[i] == null ? null : '${q.items[_cars[i]!]}'),
-                  highlight: widget.revealed ? LearningColors.correct : highlight,
-                  wrong: wrongShown && !widget.revealed,
-                  onTap: editable ? () => _unload(i) : null,
-                ),
-              ),
-              if (i < q.items.length - 1) const SizedBox(width: 6),
-            ],
-          ],
-        )),
-        const SizedBox(height: 6),
-        Padding(
-          padding: const EdgeInsets.only(left: 50),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: q.descending ? [big, const Text('→'), small] : [small, const Text('→'), big],
+        // The picture card: which way the train is loaded.
+        VisualCard(
+          minHeight: 72,
+          padding: const EdgeInsets.all(12),
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              q.descending ? 'biggest  →  smallest' : 'smallest  →  biggest',
+              style: GoogleFonts.nunito(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+            ),
           ),
         ),
-        const SizedBox(height: 32),
+        const SizedBox(height: kBlockGap),
+        checkedCorrect
+            ? correctMarked(train, correct: true)
+            : wrongMarked(train, wrong: wrongShown && !widget.revealed),
+        const SizedBox(height: kBlockGap),
         OptionGrid(
           children: [
             for (var i = 0; i < q.items.length; i++)
@@ -111,7 +116,7 @@ class _OrderingActivityState extends State<OrderingActivity> with WrongCheckRese
               ),
           ],
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: kBlockGap),
         if (!widget.revealed)
           PillButton(
             label: 'Check ✓',

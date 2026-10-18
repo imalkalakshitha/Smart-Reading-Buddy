@@ -34,6 +34,10 @@ enum _Feedback { none, correct, tryAgain, step, revealed }
 /// first try. A wrong answer gets a soft "Let's try again!"; after
 /// [_maxTries] wrong answers the answer is shown gently and the session moves on. Each
 /// question is saved when it resolves (NumberLearningDao).
+///
+/// Feedback ("Great job!", "Let's try again!", "The answer is …") shows
+/// inside the activity's picture card (VisualCard, via FeedbackScope);
+/// the tapped option itself is marked by the activity.
 class NumberLearningSessionScreen extends StatefulWidget {
   final LevelConfig level;
 
@@ -62,7 +66,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
   DateTime _questionStart = DateTime.now();
   Timer? _advanceTimer;
 
-  /// Inline feedback card under the question (see FeedbackSlot).
+  /// Feedback shown inside the activity's picture card (see VisualCard).
   FeedbackMessage? _card;
   int _cardId = 0;
   Timer? _cardTimer;
@@ -144,7 +148,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
         // First step of a two-step question (find, then colour) — no
         // point yet, and it doesn't count against the child.
         setState(() => _feedback = _Feedback.step);
-        _showCard('⭐', 'Great! ${_q.followUpPrompt ?? ''}', FeedbackTone.good);
+        _showCard('⭐', 'Great!', FeedbackTone.good);
         _speaker.say(_q.followUpSpeech ?? 'Great!');
         return true;
       case AnswerResult.correct:
@@ -169,11 +173,10 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
           if (_wrongs == 1) _buddy.react(BuddyReaction.retry);
         } else {
           _save(correct: false, score: 0);
-          _cardTimer?.cancel();
-          setState(() {
-            _card = null;
-            _feedback = _Feedback.revealed;
-          });
+          setState(() => _feedback = _Feedback.revealed);
+          // Stays up until Next.
+          _showCard('', 'The answer is ${NumberAnswerCheck.answerText(_q)}', FeedbackTone.revealed,
+              autoHide: false);
           _speaker.say('The answer is ${NumberAnswerCheck.answerText(_q)}');
           _buddy.react(BuddyReaction.encourage);
         }
@@ -269,60 +272,68 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     final total = _questions!.length;
     return Column(
       children: [
-        // Fixed top: progress, the question, and the feedback card slot.
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-          child: Column(
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(
-                        value: (_index + 1) / total,
-                        minHeight: 10,
-                        backgroundColor: AppColors.divider,
-                        valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
-                      ),
-                    ),
+              Expanded(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: LinearProgressIndicator(
+                    value: (_index + 1) / total,
+                    minHeight: 10,
+                    backgroundColor: AppColors.divider,
+                    valueColor: const AlwaysStoppedAnimation(LearningColors.accent),
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    '${_index + 1} / $total',
-                    style: GoogleFonts.nunito(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                ],
+                ),
               ),
-              const SizedBox(height: 18),
-              InstructionBar(prompt: _q.prompt, onReplay: _replay),
-              FeedbackSlot(message: _card),
+              const SizedBox(width: 12),
+              Text(
+                '${_index + 1} / $total',
+                style: GoogleFonts.nunito(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textSecondary,
+                ),
+              ),
             ],
           ),
         ),
-        // The activity, centred vertically in the space left (scrolls when
-        // it's taller than that), so there's no big empty gap at the bottom.
+        // The instruction, the picture card and the answers as one block,
+        // centred vertically in the space left (scrolls only if it's taller).
         Expanded(
           child: LayoutBuilder(
             builder: (context, box) => SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              padding: const EdgeInsets.fromLTRB(20, kBlockGap, 20, 20),
               child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: (box.maxHeight - 20).clamp(0.0, double.infinity)),
+                constraints:
+                    BoxConstraints(minHeight: (box.maxHeight - kBlockGap - 20).clamp(0.0, double.infinity)),
                 child: Center(
-                  child: KeyedSubtree(
-                    key: ValueKey(_index),
-                    child: _activity(_q),
-                  ).animate(key: ValueKey('a$_index')).fadeIn(duration: 250.ms),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InstructionBar(prompt: _q.prompt, onReplay: _replay),
+                      const SizedBox(height: kBlockGap),
+                      FeedbackScope(
+                        message: _card,
+                        child: KeyedSubtree(
+                          key: ValueKey(_index),
+                          child: _activity(_q),
+                        ).animate(key: ValueKey('a$_index')).fadeIn(duration: 250.ms),
+                      ),
+                      if (_feedback == _Feedback.revealed) ...[
+                        const SizedBox(height: kBlockGap),
+                        PillButton(label: 'Next →', color: LearningColors.accent, onTap: _next)
+                            .animate(key: ValueKey('n$_index'))
+                            .fadeIn(duration: 250.ms),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
-        if (_feedback == _Feedback.revealed) _revealBar(),
       ],
     );
   }
@@ -361,42 +372,6 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
           speaker: _speaker,
           replaySignal: _replaySignal),
     };
-  }
-
-  /// After the last try: the answer, shown gently, with Next. The only
-  /// feedback left at the bottom — it needs the button.
-  Widget _revealBar() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-      decoration: const BoxDecoration(
-        color: LearningColors.tryAgainSurface,
-        border: Border(top: BorderSide(color: LearningColors.tryAgain, width: 3)),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              const Text('💡', style: TextStyle(fontSize: 32)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  "The answer is ${NumberAnswerCheck.answerText(_q)}. Let's keep going!",
-                  style: GoogleFonts.nunito(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          PillButton(label: 'Next →', color: LearningColors.accent, onTap: _next),
-        ],
-      ),
-    ).animate(key: ValueKey('r$_index')).slideY(begin: 0.4, duration: 200.ms).fadeIn();
   }
 
   Widget _summary() => SessionSummaryView(

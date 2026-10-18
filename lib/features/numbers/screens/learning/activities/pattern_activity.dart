@@ -44,17 +44,19 @@ class _PatternActivityState extends State<PatternActivity>
 
     return Column(
       children: [
-        q.road ? _road(row) : row,
-        const SizedBox(height: 36),
+        VisualCard(padding: const EdgeInsets.all(12), child: q.road ? _road(row) : row),
+        const SizedBox(height: kBlockGap),
         OptionGrid(
           children: [
             for (final o in q.options)
               BigNumberButton(
                 label: '$o',
                 fontSize: 40,
-                look: o == _correct || (widget.revealed && o == q.answer)
+                look: o == _correct
                     ? OptionLook.correct
-                    : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
+                    : widget.revealed && o == q.answer
+                        ? OptionLook.revealed
+                        : (isMarkedWrong(o) ? OptionLook.wrong : OptionLook.normal),
                 onTap: widget.enabled && _correct == null && !isMarkedWrong(o)
                     ? () {
                         final ok = widget.onSubmit(o);

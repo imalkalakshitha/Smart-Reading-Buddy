@@ -38,9 +38,8 @@ class _RecognitionActivityState extends State<RecognitionActivity>
   bool get _colouring => widget.question.colourQuantity && (_correct != null || widget.revealed);
 
   OptionLook _lookFor(int option) {
-    if (option == _correct || (widget.revealed && option == widget.question.answer)) {
-      return OptionLook.correct;
-    }
+    if (option == _correct) return OptionLook.correct;
+    if (widget.revealed && option == widget.question.answer) return OptionLook.revealed;
     if (isMarkedWrong(option)) return OptionLook.wrong;
     return OptionLook.normal;
   }
@@ -50,10 +49,20 @@ class _RecognitionActivityState extends State<RecognitionActivity>
     final q = widget.question;
     return Column(
       children: [
-        if (!_colouring) ...[
-          const Text('👂', style: TextStyle(fontSize: 64)),
-          const SizedBox(height: 24),
-        ],
+        // The picture card: 👂, then the colouring instruction for the
+        // second step (feedback shows over it).
+        VisualCard(
+          minHeight: _colouring ? 64 : 96,
+          padding: EdgeInsets.all(_colouring ? 12 : 16),
+          child: _colouring
+              ? Text(
+                  q.followUpPrompt ?? '',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                )
+              : const Text('👂', style: TextStyle(fontSize: 64)),
+        ),
+        const SizedBox(height: kBlockGap),
         OptionGrid(
           children: [
             for (final o in q.options)
@@ -71,14 +80,9 @@ class _RecognitionActivityState extends State<RecognitionActivity>
           ],
         ),
         if (_colouring) ...[
-          const SizedBox(height: 24),
-          Text(
-            q.followUpPrompt ?? '',
-            style: GoogleFonts.nunito(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: kBlockGap),
           _colourBoard(),
-          const SizedBox(height: 20),
+          const SizedBox(height: kBlockGap),
           if (!widget.revealed)
             PillButton(
               label: 'Check ✓',
@@ -98,7 +102,8 @@ class _RecognitionActivityState extends State<RecognitionActivity>
   /// A ten-frame of stars (2 rows of 5); tap to colour / un-colour.
   Widget _colourBoard() {
     final answer = widget.question.answer;
-    final editable = widget.enabled && !checkedCorrect && !widget.revealed;
+    // Locked while a wrong answer is marked (see WrongCheckReset).
+    final editable = widget.enabled && !checkedCorrect && !widget.revealed && !wrongShown;
     final wrong = wrongShown && !widget.revealed;
     final border = checkHighlight ?? AppColors.divider;
     Widget cell(int i) {
@@ -134,7 +139,7 @@ class _RecognitionActivityState extends State<RecognitionActivity>
     }
 
     const perRow = RecognitionQuestion.quantitySlots ~/ 2;
-    return wrongMarked(wrong: wrong, Container(
+    final board = Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
         color: wrong ? LearningColors.wrongFill : Colors.white,
@@ -147,6 +152,8 @@ class _RecognitionActivityState extends State<RecognitionActivity>
           Row(children: [for (var i = perRow; i < perRow * 2; i++) cell(i)]),
         ],
       ),
-    ));
+    );
+    if (checkedCorrect) return correctMarked(board, correct: true);
+    return wrongMarked(board, wrong: wrong);
   }
 }

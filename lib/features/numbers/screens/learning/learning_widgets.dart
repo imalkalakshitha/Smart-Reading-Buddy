@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_tts/flutter_tts.dart';
@@ -25,6 +26,10 @@ class LearningColors {
 /// How long a wrong pick stays marked before it resets for another try.
 const kWrongResetDelay = Duration(milliseconds: 1500);
 
+/// Spacing between the parts of a question (instruction, picture card,
+/// options), so they read as one block.
+const kBlockGap = 18.0;
+
 /// Small 🔄 "try again" badge for a wrong pick.
 class RetryBadge extends StatelessWidget {
   const RetryBadge({super.key});
@@ -50,10 +55,40 @@ class RetryBadge extends StatelessWidget {
 Widget gentleShake(Widget child) =>
     child.animate().shake(hz: 4, offset: const Offset(5, 0), rotation: 0, duration: 420.ms);
 
-enum FeedbackTone { good, tryAgain }
+/// Small green ✓ badge for a right answer.
+class CorrectBadge extends StatelessWidget {
+  const CorrectBadge({super.key});
 
-/// One inline feedback message. A new [id] re-plays the entrance animation
-/// even when the text is the same ("Let's try again!" twice in a row).
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 28,
+      height: 28,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(color: LearningColors.correct, shape: BoxShape.circle),
+      child: const Icon(Icons.check_rounded, size: 20, color: Colors.white),
+    );
+  }
+}
+
+/// A quick scale "pop" — played once when [child] appears, so callers wrap
+/// only the "correct" state in it.
+Widget correctPop(Widget child) =>
+    child.animate().scaleXY(begin: 0.88, end: 1, duration: 450.ms, curve: Curves.elasticOut);
+
+/// Wraps an answer row in the correct-answer pop + ✓ badge while [correct].
+Widget correctMarked(Widget row, {required bool correct}) => correct
+    ? correctPop(Stack(
+        clipBehavior: Clip.none,
+        children: [row, const Positioned(top: -12, right: 0, child: CorrectBadge())],
+      ))
+    : row;
+
+enum FeedbackTone { good, tryAgain, revealed }
+
+/// One feedback message, shown inside the question's [VisualCard]. A new
+/// [id] re-plays the entrance (and the confetti) even when the text is the
+/// same ("Let's try again!" twice in a row).
 class FeedbackMessage {
   final int id;
   final String emoji;
@@ -63,61 +98,236 @@ class FeedbackMessage {
   const FeedbackMessage(this.id, this.emoji, this.text, this.tone);
 }
 
-/// Fixed-height slot under the question that shows a small rounded
-/// feedback card, fading and sliding in. Fixed height so the activity
-/// below never jumps when a message comes and goes.
-class FeedbackSlot extends StatelessWidget {
+/// Hands the session's current feedback message down to the activity's
+/// [VisualCard], so the activities don't each pass it along.
+class FeedbackScope extends InheritedWidget {
   final FeedbackMessage? message;
 
-  const FeedbackSlot({super.key, this.message});
+  const FeedbackScope({super.key, required this.message, required super.child});
+
+  static FeedbackMessage? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<FeedbackScope>()?.message;
+
+  @override
+  bool updateShouldNotify(FeedbackScope oldWidget) => oldWidget.message != message;
+}
+
+/// The question's picture (objects, number, sentence, …) on a white card.
+/// Answer feedback appears inside it (see [CardFeedbackOverlay]), so the
+/// child's eyes stay on the question rather than a separate message.
+class VisualCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double minHeight;
+
+  const VisualCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.minHeight = 96,
+  });
+
+  static const radius = 22.0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: double.infinity,
+          constraints: BoxConstraints(minHeight: minHeight),
+          padding: padding,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: const [BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4))],
+          ),
+          child: child,
+        ),
+        Positioned.fill(child: CardFeedbackOverlay(message: FeedbackScope.of(context))),
+      ],
+    );
+  }
+}
+
+/// Feedback over a card: a soft tint with the message large in the middle,
+/// fading in — plus a confetti burst for a right answer. Never blocks taps.
+/// [scrim] false keeps the card's content fully visible (Number Match's
+/// board, which stays playable).
+class CardFeedbackOverlay extends StatelessWidget {
+  final FeedbackMessage? message;
+  final bool scrim;
+
+  const CardFeedbackOverlay({super.key, required this.message, this.scrim = true});
 
   @override
   Widget build(BuildContext context) {
     final m = message;
-    return SizedBox(
-      height: 64,
-      child: Center(
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 260),
-          transitionBuilder: (child, anim) => FadeTransition(
-            opacity: anim,
-            child: SlideTransition(
-              position: Tween(begin: const Offset(0, -0.35), end: Offset.zero).animate(anim),
-              child: child,
-            ),
-          ),
-          child: m == null ? const SizedBox.shrink(key: ValueKey('none')) : _card(m),
+    return IgnorePointer(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 260),
+        transitionBuilder: (child, anim) => FadeTransition(
+          opacity: anim,
+          child: ScaleTransition(scale: Tween(begin: 0.92, end: 1.0).animate(anim), child: child),
         ),
+        child: m == null ? const SizedBox.expand(key: ValueKey('none')) : _content(m),
       ),
     );
   }
 
-  Widget _card(FeedbackMessage m) {
-    final good = m.tone == FeedbackTone.good;
-    return Container(
+  Widget _content(FeedbackMessage m) {
+    final (tint, border) = switch (m.tone) {
+      FeedbackTone.good => (LearningColors.correctSurface, LearningColors.correct),
+      FeedbackTone.tryAgain => (LearningColors.tryAgainSurface, LearningColors.wrongBorder),
+      FeedbackTone.revealed => (LearningColors.correctSurface, LearningColors.correct),
+    };
+    final label = m.emoji.isEmpty ? m.text : '${m.text} ${m.emoji}';
+    return Stack(
       key: ValueKey(m.id),
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-      decoration: BoxDecoration(
-        color: good ? LearningColors.correctSurface : LearningColors.wrongFill,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: good ? LearningColors.correct : LearningColors.wrongBorder, width: 2),
-        boxShadow: const [BoxShadow(color: AppColors.shadow, blurRadius: 8, offset: Offset(0, 3))],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(m.emoji, style: const TextStyle(fontSize: 22)),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              m.text,
-              style: GoogleFonts.nunito(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+      clipBehavior: Clip.none,
+      children: [
+        if (scrim)
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                // The revealed answer keeps the picture showing through.
+                color: tint.withValues(alpha: m.tone == FeedbackTone.revealed ? 0.6 : 0.82),
+                borderRadius: BorderRadius.circular(VisualCard.radius),
+              ),
             ),
           ),
-        ],
-      ),
+        Positioned.fill(
+          child: LayoutBuilder(builder: (context, box) {
+            final width = (box.maxWidth - 24).clamp(0.0, double.infinity);
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(8),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Container(
+                    constraints: BoxConstraints(maxWidth: width),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.94),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: border, width: 2.5),
+                      boxShadow: const [BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4))],
+                    ),
+                    child: Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.nunito(
+                        fontSize: 30,
+                        fontWeight: FontWeight.w900,
+                        color: AppColors.textPrimary,
+                        height: 1.2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+        if (m.tone == FeedbackTone.good) const Positioned.fill(child: ConfettiBurst()),
+      ],
     );
   }
+}
+
+/// A short burst of confetti from the middle of its box (~1 s, once).
+class ConfettiBurst extends StatefulWidget {
+  const ConfettiBurst({super.key});
+
+  @override
+  State<ConfettiBurst> createState() => _ConfettiBurstState();
+}
+
+class _ConfettiBurstState extends State<ConfettiBurst> with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(milliseconds: 1000))..forward();
+  late final List<_Piece> _pieces = _Piece.burst(28);
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(painter: _ConfettiPainter(_c, _pieces));
+  }
+}
+
+class _Piece {
+  final double dx, dy, spin, size;
+  final Color color;
+
+  const _Piece(this.dx, this.dy, this.spin, this.size, this.color);
+
+  // Bright and cheerful — and no red.
+  static const _colors = [
+    Color(0xFF2ECC71),
+    Color(0xFFF1C40F),
+    Color(0xFF3498DB),
+    Color(0xFF9B59B6),
+    Color(0xFFFF8FB1),
+    Color(0xFFF39C12),
+  ];
+
+  static List<_Piece> burst(int n) {
+    final r = math.Random();
+    return [
+      for (var i = 0; i < n; i++)
+        () {
+          // Mostly upwards and outwards; gravity pulls them back down.
+          final angle = -math.pi / 2 + (r.nextDouble() - 0.5) * math.pi * 1.4;
+          final speed = 120 + r.nextDouble() * 140;
+          return _Piece(
+            math.cos(angle) * speed,
+            math.sin(angle) * speed,
+            (r.nextDouble() - 0.5) * 12,
+            5 + r.nextDouble() * 5,
+            _colors[i % _colors.length],
+          );
+        }(),
+    ];
+  }
+}
+
+class _ConfettiPainter extends CustomPainter {
+  final Animation<double> t;
+  final List<_Piece> pieces;
+
+  _ConfettiPainter(this.t, this.pieces) : super(repaint: t);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = t.value; // 0 → 1 over the burst
+    if (s >= 1) return;
+    final origin = size.center(Offset.zero);
+    final fade = s < 0.6 ? 1.0 : (1 - s) / 0.4;
+    final paint = Paint();
+    for (final p in pieces) {
+      final pos = origin + Offset(p.dx * s, p.dy * s + 260 * s * s);
+      paint.color = p.color.withValues(alpha: fade);
+      canvas.save();
+      canvas.translate(pos.dx, pos.dy);
+      canvas.rotate(p.spin * s);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(Rect.fromCenter(center: Offset.zero, width: p.size, height: p.size * 0.6),
+            const Radius.circular(1.5)),
+        paint,
+      );
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(_ConfettiPainter old) => false;
 }
 
 /// Response callback for an activity: returns whether it was correct, so
@@ -273,7 +483,9 @@ class InstructionBar extends StatelessWidget {
   }
 }
 
-enum OptionLook { normal, wrong, correct }
+/// [revealed]: the answer shown after the last try — a softer green, no
+/// badge or pop (the child didn't pick it).
+enum OptionLook { normal, wrong, correct, revealed }
 
 /// Large, well-spaced number button.
 class BigNumberButton extends StatelessWidget {
@@ -296,6 +508,7 @@ class BigNumberButton extends StatelessWidget {
       OptionLook.normal => (Colors.white, AppColors.divider),
       OptionLook.wrong => (LearningColors.wrongFill, LearningColors.wrongBorder),
       OptionLook.correct => (LearningColors.correctSurface, LearningColors.correct),
+      OptionLook.revealed => (LearningColors.correctSurface, LearningColors.correct.withValues(alpha: 0.6)),
     };
     final button = GestureDetector(
       onTap: onTap,
@@ -305,7 +518,7 @@ class BigNumberButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: border, width: look == OptionLook.normal ? 1.5 : 3),
+          border: Border.all(color: border, width: switch (look) { OptionLook.normal => 1.5, OptionLook.revealed => 2.5, _ => 3 }),
           boxShadow: const [
             BoxShadow(color: AppColors.shadow, blurRadius: 10, offset: Offset(0, 4)),
           ],
@@ -324,15 +537,19 @@ class BigNumberButton extends StatelessWidget {
         ),
       ),
     );
-    if (look != OptionLook.wrong) return button;
-    // Wrong: 🔄 badge + one gentle shake (plays as this state appears).
-    return gentleShake(Stack(
-      clipBehavior: Clip.none,
-      children: [
-        button,
-        const Positioned(top: -8, right: -8, child: RetryBadge()),
-      ],
-    ));
+    return switch (look) {
+      OptionLook.normal || OptionLook.revealed => button,
+      // Right: ✓ badge + a quick pop (plays as this state appears).
+      OptionLook.correct => correctPop(Stack(
+          clipBehavior: Clip.none,
+          children: [button, const Positioned(top: -8, right: -8, child: CorrectBadge())],
+        )),
+      // Wrong: 🔄 badge + one gentle shake (plays as this state appears).
+      OptionLook.wrong => gentleShake(Stack(
+          clipBehavior: Clip.none,
+          children: [button, const Positioned(top: -8, right: -8, child: RetryBadge())],
+        )),
+    };
   }
 }
 
@@ -460,6 +677,8 @@ class AnswerSlot extends StatelessWidget {
 /// [showWrong] marks the answer for [kWrongResetDelay], then clears the
 /// marking but keeps Check off until the child changes something
 /// ([changed]), so the same wrong answer can't simply be re-submitted.
+/// Callers keep the answer uneditable while [wrongShown], so the mark stays
+/// up exactly as long as the "Let's try again!" message.
 mixin WrongCheckReset<T extends StatefulWidget> on State<T> {
   bool checkedCorrect = false;
   bool wrongShown = false;
