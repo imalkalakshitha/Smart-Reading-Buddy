@@ -1,0 +1,33 @@
+{
+  "_comment": "Number Learning level config. Questions are generated from these rules at runtime by lib/services/numbers/question_generator.dart; nothing here is a fixed question. Fields: id, grade (3|4), track (basic|advanced), level (1-based within grade+track), title, activityType (recognition|build|counting|ordering|formation|patterns|calculation|place_value), a range as min/max and/or digitCount / digitCounts (each number picks one of the listed digit counts), optionCount (<= 4), plus per-type rule params.",
+  "version": 2,
+  "levels": [
+    { "id": "g3_basic_1", "grade": 3, "track": "basic", "level": 1, "title": "Find and colour", "activityType": "recognition", "min": 0, "max": 9, "optionCount": 3, "colourQuantity": true },
+    { "id": "g3_basic_2", "grade": 3, "track": "basic", "level": 2, "title": "Build the number", "activityType": "build", "min": 0, "max": 9, "extraTiles": 2 },
+    { "id": "g3_basic_3", "grade": 3, "track": "basic", "level": 3, "title": "Count the objects", "activityType": "counting", "min": 0, "max": 9, "optionCount": 3, "objects": ["star", "apple", "fish"], "grouped": false },
+    { "id": "g3_basic_4", "grade": 3, "track": "basic", "level": 4, "title": "Number train", "activityType": "ordering", "min": 0, "max": 9, "itemCount": 4, "direction": "ascending" },
+    { "id": "g3_basic_5", "grade": 3, "track": "basic", "level": 5, "title": "Biggest or smallest", "activityType": "formation", "digitCounts": [2, 3], "goal": "either" },
+    { "id": "g3_basic_6", "grade": 3, "track": "basic", "level": 6, "title": "Missing numbers", "activityType": "patterns", "min": 0, "max": 9, "optionCount": 3, "steps": [1, 2, -1], "length": 5 },
+    { "id": "g3_basic_7", "grade": 3, "track": "basic", "level": 7, "title": "Add and take away", "activityType": "calculation", "min": 0, "max": 9, "optionCount": 3, "operations": ["add", "subtract"], "answerLimit": 9, "visual": true },
+
+    { "id": "g3_adv_1", "grade": 3, "track": "advanced", "level": 1, "title": "Find 2-digit numbers", "activityType": "recognition", "digitCount": 2, "optionCount": 4 },
+    { "id": "g3_adv_2", "grade": 3, "track": "advanced", "level": 2, "title": "Build 2-digit numbers", "activityType": "build", "digitCount": 2, "extraTiles": 2 },
+    { "id": "g3_adv_3", "grade": 3, "track": "advanced", "level": 3, "title": "Sticks and balls", "activityType": "counting", "digitCount": 2, "optionCount": 3, "objects": ["stick", "ball"], "grouped": true },
+    { "id": "g3_adv_4", "grade": 3, "track": "advanced", "level": 4, "title": "Number train", "activityType": "ordering", "digitCount": 2, "itemCount": 4, "direction": "either" },
+    { "id": "g3_adv_5", "grade": 3, "track": "advanced", "level": 5, "title": "Make 4-digit numbers", "activityType": "formation", "digitCount": 4, "goal": "either" },
+    { "id": "g3_adv_6", "grade": 3, "track": "advanced", "level": 6, "title": "Number patterns", "activityType": "patterns", "min": 10, "max": 999, "optionCount": 4, "steps": [2, 5, 10, 25, -10], "length": 5 },
+    { "id": "g3_adv_7", "grade": 3, "track": "advanced", "level": 7, "title": "Groups and sharing", "activityType": "calculation", "max": 50, "optionCount": 4, "operations": ["multiply", "divide"], "answerMin": 10, "answerLimit": 50, "maxFactor": 5, "maxGroupSize": 10, "visual": true },
+
+    { "id": "g4_basic_1", "grade": 4, "track": "basic", "level": 1, "title": "Find 3-digit numbers", "activityType": "recognition", "digitCount": 3, "optionCount": 4 },
+    { "id": "g4_basic_2", "grade": 4, "track": "basic", "level": 2, "title": "Build 3-digit numbers", "activityType": "build", "digitCount": 3, "extraTiles": 2 },
+    { "id": "g4_basic_3", "grade": 4, "track": "basic", "level": 3, "title": "Number train", "activityType": "ordering", "digitCount": 3, "itemCount": 4, "direction": "ascending" },
+    { "id": "g4_basic_4", "grade": 4, "track": "basic", "level": 4, "title": "Number road", "activityType": "patterns", "min": 10, "max": 999, "optionCount": 4, "steps": [5, 10, 25, -10, 100], "length": 5, "display": "road" },
+    { "id": "g4_basic_5", "grade": 4, "track": "basic", "level": 5, "title": "Hundreds, tens, ones", "activityType": "place_value", "mode": "place_value", "digitCounts": [2, 3], "optionCount": 4 },
+
+    { "id": "g4_adv_1", "grade": 4, "track": "advanced", "level": 1, "title": "Find big numbers", "activityType": "recognition", "digitCounts": [3, 4], "optionCount": 4 },
+    { "id": "g4_adv_2", "grade": 4, "track": "advanced", "level": 2, "title": "Build big numbers", "activityType": "build", "digitCounts": [3, 4], "extraTiles": 2 },
+    { "id": "g4_adv_3", "grade": 4, "track": "advanced", "level": 3, "title": "Count hundreds, tens, ones", "activityType": "counting", "digitCount": 3, "optionCount": 4, "objects": ["flat", "stick", "ball"], "grouped": true, "placeValueChart": true },
+    { "id": "g4_adv_4", "grade": 4, "track": "advanced", "level": 4, "title": "Order big numbers", "activityType": "ordering", "digitCounts": [3, 4], "itemCount": 4, "direction": "either" },
+    { "id": "g4_adv_5", "grade": 4, "track": "advanced", "level": 5, "title": "Bigger or smaller?", "activityType": "place_value", "mode": "comparison", "digitCounts": [3, 4] }
+  ]
+}
