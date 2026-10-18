@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_progress.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_progress.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/learning_widgets.dart';
 
 /// End-of-session summary shared by every Numbers practice session:

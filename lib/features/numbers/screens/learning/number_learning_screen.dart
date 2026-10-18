@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:smart_reading_buddy/features/numbers/dao/number_learning_dao.dart';
+import 'package:smart_reading_buddy/core/dao/number_learning_dao.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
-import 'package:smart_reading_buddy/features/numbers/services/learner_grade.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_progress.dart';
+import 'package:smart_reading_buddy/core/services/numbers/learner_grade.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_progress.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/numbers_hub_screen.dart' show EnglishOnlyNote;
 import 'package:smart_reading_buddy/features/numbers/screens/learning/learning_widgets.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_level_list_screen.dart';

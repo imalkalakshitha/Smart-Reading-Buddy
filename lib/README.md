@@ -27,15 +27,16 @@ lives in `core/`.
 | `core/models/` | `AppState`, `AppColors`, `AppText`, `LocalStorage`, `PronunciationResult`, `TimedReadingSession` | shared |
 | `core/services/` | `SessionLogger` (owns `reading_buddy.db` and its migrations), `BleCommandService`, `CmuPhonemeLookup`, `PracticeSuggestionService`, `EduPlayProfileMapper` | shared |
 | `core/services/speech/` | Hybrid pronunciation scorer, Gemini / Groq / DTW (`pronunciation_scorer`) / simple scorers, Timed Reading speech bridge, audio preprocessor | **Pronunciation function (Imalka)** — see note below |
-| `core/dao/` | DAOs shared by more than one feature: `EduPlayDatabase`, `FreeDrawingDao`, `TimedReadingDao` | shared (each DAO's feature owns its own table) |
-| `core/data/` | Shared data: word lists, substitution tips, cross-language phoneme map, Timed Reading sentences | shared |
+| `core/services/numbers/` | Numbers level config and unlock rules shared with Parent: `LevelConfig` / `LevelRepository` (levels.json, practice_activities.json), `LevelProgressRules`, `LearnerGrade` | Numbers feature (in core because Parent analytics uses them) |
+| `core/dao/` | DAOs shared by more than one feature: `EduPlayDatabase`, `FreeDrawingDao`, `TimedReadingDao`, `NumberLearningDao`, `NumberPracticeDao` | shared (each DAO's feature owns its own table) |
+| `core/data/` | Shared data: word lists, substitution tips, cross-language phoneme map, Timed Reading sentences, `NumbersData` (number words, -teen/-ty pairs, Number Words levels) | shared |
 | `core/widgets/` | Shared widgets: `ComingSoonPlaceholder`, `LoadingDots` (+ unused `MascotReaction`, `SmartBuddyButton`) | shared |
 | `features/pronunciation/` | Pronunciation, calibration and Timed Reading — screens, services (calibration, coaching, phoneme substitution, word diff), data, widgets | Pronunciation function — Imalka |
 | `features/eduplay_encoding/` | EduPlay (engine, RF model, task repository, screens) and Encoding (word / sentence building) | EduPlay + Encoding function — _(add name)_ |
 | `features/writing/` | Free Drawing recognition, scribble guard, tracing and writing progress screens | Writing function — _(add name)_ |
 | `features/reading/` | Reading module placeholder screens (still hidden in the app) and its data | Reading function — _(add name)_ |
-| `features/numbers/` | Numbers hub: Number Words, Rapid Digit Naming, Number Learning (8 activity types), Spell Number Words, Number Match, Read & Answer — screens, services, data, DAOs | shared Numbers feature — _(add name)_ |
-| `features/parent/` | Parent PIN, per-feature analytics screens, PDF report, cross-language analyzer | Parent / analytics — _(add name)_ |
+| `features/numbers/` | Numbers hub: Number Words, Rapid Digit Naming, Number Learning (8 activity types), Spell Number Words, Number Match, Read & Answer — screens, services (question generators, checkers, RAN listener), data | shared Numbers feature — _(add name)_ |
+| `features/parent/` | Parent PIN, per-feature analytics screens (incl. Numbers), Numbers summary calculations, PDF report, cross-language analyzer | Parent / analytics — _(add name)_ |
 
 ### Note: `core/services/speech/` is owned by Pronunciation
 

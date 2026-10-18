@@ -1,5 +1,5 @@
 import 'dart:math';
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 
 /// How a Number Match card shows its number.
 enum CardForm { digit, word, picture }

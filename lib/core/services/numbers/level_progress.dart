@@ -1,5 +1,4 @@
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
-import 'package:smart_reading_buddy/features/numbers/services/question_generator.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 
 enum LevelState { locked, unlocked, passed, comingSoon }
 
@@ -16,10 +15,12 @@ class LevelProgressRules {
   static const passScore = 8;
   static const questionsPerSession = 10;
 
-  /// Number Match boards come from MatchBoardGenerator rather than
-  /// QuestionGenerator, but play the same 10-question sessions.
-  static bool isPlayable(LevelConfig l) =>
-      QuestionGenerator.supports(l.activityType) || l.activityType == ActivityType.numberMatch;
+  /// Every type in [ActivityType.all] has a generator — QuestionGenerator,
+  /// or MatchBoardGenerator for Number Match. (Checked against the type
+  /// list rather than the generator so this file can live in core/,
+  /// which can't import the Numbers feature; a Numbers test keeps the two
+  /// in sync.)
+  static bool isPlayable(LevelConfig l) => ActivityType.all.contains(l.activityType);
 
   static Map<String, LevelState> states(
     List<LevelConfig> trackLevels,

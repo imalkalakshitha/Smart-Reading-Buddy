@@ -1,5 +1,5 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/core/services/session_logger.dart';
 
 /// DAO for Number Learning's one table (number_learning_attempts), added to
@@ -64,6 +64,18 @@ class NumberLearningDao {
     return {
       for (final r in rows) r['level_id'] as String: (r['best'] as int?) ?? 0,
     };
+  }
+
+  /// Every attempt row for [profileName], oldest first (read-only; for the
+  /// parent Numbers analytics).
+  static Future<List<Map<String, Object?>>> allAttempts(String profileName) async {
+    final db = await _db;
+    return db.query(
+      'number_learning_attempts',
+      where: 'profile_name = ?',
+      whereArgs: [profileName],
+      orderBy: 'timestamp ASC, id ASC',
+    );
   }
 
   /// Question keys from the child's last [sessions] sessions of [levelId]

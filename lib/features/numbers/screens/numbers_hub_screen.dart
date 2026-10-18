@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:smart_reading_buddy/features/numbers/data/numbers_data.dart';
+import 'package:smart_reading_buddy/core/data/numbers_data.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_learning_screen.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_level_list_screen.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/number_word_session_screen.dart';

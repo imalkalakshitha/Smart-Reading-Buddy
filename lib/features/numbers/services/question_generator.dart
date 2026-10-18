@@ -1,7 +1,7 @@
 import 'dart:math';
 import 'package:smart_reading_buddy/features/numbers/data/number_sentence_data.dart';
-import 'package:smart_reading_buddy/features/numbers/data/numbers_data.dart';
-import 'package:smart_reading_buddy/features/numbers/services/level_config.dart';
+import 'package:smart_reading_buddy/core/data/numbers_data.dart';
+import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_question.dart';
 
 /// Rule-based question generator for Number Learning — one generator per

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:smart_reading_buddy/features/parent/services/cross_language_analyzer.dart';
+import 'package:smart_reading_buddy/features/parent/services/numbers_summary.dart';
 import 'package:smart_reading_buddy/features/parent/services/pdf_si_text.dart';
 
 /// Builds the "Speech Progress Summary" (clinical referral) PDF for a
@@ -27,7 +28,19 @@ class PdfReportService {
     required List<Map<String, dynamic>> phonemeStats, // phoneme, language, total, incorrect
     required List<CrossLanguagePattern> crossPatterns,
     required List<Map<String, dynamic>> substitutionPatterns, // expected_phoneme, produced_phoneme, language, occurrences
+    // Numbers section data. Optional so the existing caller is unchanged:
+    // when omitted it's loaded here for [childName]; if that fails or the
+    // child hasn't done any Numbers activities, the section is left out.
+    NumbersSummary? numbers,
   }) async {
+    NumbersSummary? numbersSummary = numbers;
+    if (numbersSummary == null) {
+      try {
+        numbersSummary = await NumbersSummaryLoader.load(childName);
+      } catch (_) {
+        numbersSummary = null;
+      }
+    }
     // Loaded unconditionally, not just when sinhala==true: individual
     // phoneme values are Sinhala script (e.g. 'ර') regardless of which
     // report language is selected, since they come straight from the
@@ -135,6 +148,75 @@ class PdfReportService {
                   ))
               .toList(),
         );
+
+    List<pw.Widget> numbersSection(NumbersSummary n) {
+      final latest = n.latestRan;
+      return [
+        sectionHeading('Numbers'),
+        pw.Row(
+          children: [
+            statTile(t('Overall Accuracy', PdfSiText.overallAccuracy),
+                n.overall.rate == null ? '–' : '${(n.overall.rate! * 100).round()}%'),
+            statTile('Basic levels passed', '${n.basicPassed}/${n.basicTotal}'),
+            statTile('Advanced levels passed', '${n.advancedPassed}/${n.advancedTotal}'),
+            if (latest != null) statTile('RAN speed (latest)', '${latest.digitsPerSecond.toStringAsFixed(1)} digits/s'),
+          ],
+        ),
+        if (n.byActivity.isNotEmpty) ...[
+          pw.SizedBox(height: 12),
+          pw.Table(
+            border: pw.TableBorder.all(color: PdfColors.grey300, width: 0.5),
+            columnWidths: const {
+              0: pw.FlexColumnWidth(3),
+              1: pw.FlexColumnWidth(2),
+              2: pw.FlexColumnWidth(1.5),
+            },
+            children: [
+              tableHeaderRow(['Activity', 'Right first try', 'Accuracy']),
+              for (final (i, e) in n.byActivity.entries.indexed)
+                tableDataRow(
+                  [
+                    NumbersSummaryBuilder.activityLabels[e.key] ?? e.key,
+                    '${e.value.correct} / ${e.value.total}',
+                    '${(e.value.rate! * 100).round()}%',
+                  ],
+                  striped: i.isOdd,
+                ),
+            ],
+          ),
+        ],
+        if (n.numberWordsByLevel.isNotEmpty || n.teenTyConfusions > 0) ...[
+          pw.SizedBox(height: 10),
+          if (n.numberWordsByLevel.isNotEmpty)
+            pw.Text(
+              'Number Words: ${[
+                for (final e in n.numberWordsByLevel.entries)
+                  '${NumbersSummaryBuilder.numberWordsLevelLabel(e.key)} ${(e.value.rate! * 100).round()}%',
+              ].join(' · ')}',
+              style: tableCell,
+            ),
+          pw.Text(
+            '-teen / -ty mix-ups: ${n.teenTyConfusions}'
+            '${n.confusedPairs.isEmpty ? '' : ' (most often ${n.confusedPairs.map((p) => '${p.label} ×${p.count}').join(', ')})'}',
+            style: tableCell,
+          ),
+        ],
+        if (latest != null) ...[
+          pw.SizedBox(height: 6),
+          pw.Text(
+            'Rapid Digit Naming (latest): ${(latest.totalMs / 1000).toStringAsFixed(1)} s, '
+            '${latest.errors} mistakes, ${latest.digitsPerSecond.toStringAsFixed(1)} correct digits per second',
+            style: tableCell,
+          ),
+        ],
+        if (n.needsPractice.isNotEmpty) ...[
+          pw.SizedBox(height: 10),
+          pw.Text('Needs practice', style: value),
+          for (final p in n.needsPractice)
+            pw.Text('•  ${p.label} — ${(p.recent.rate! * 100).round()}% of the last ${p.recent.total} answers', style: tableCell),
+        ],
+      ];
+    }
 
     doc.addPage(
       pw.MultiPage(
@@ -290,6 +372,10 @@ class PdfReportService {
               ],
             ),
           ],
+
+          // Numbers — English labels (no Sinhala strings exist for these
+          // yet), except where PdfSiText already has one.
+          if (numbersSummary != null && numbersSummary.hasData) ...numbersSection(numbersSummary),
         ],
       ),
     );

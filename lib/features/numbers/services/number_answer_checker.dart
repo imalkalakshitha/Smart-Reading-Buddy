@@ -1,4 +1,4 @@
-import 'package:smart_reading_buddy/features/numbers/data/numbers_data.dart';
+import 'package:smart_reading_buddy/core/data/numbers_data.dart';
 import 'package:smart_reading_buddy/core/models/pronunciation_result.dart';
 import 'package:smart_reading_buddy/core/services/cmu_phoneme_lookup.dart';
 

@@ -3,7 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:smart_reading_buddy/features/numbers/dao/number_practice_dao.dart';
+import 'package:smart_reading_buddy/core/dao/number_practice_dao.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_answer_checker.dart';

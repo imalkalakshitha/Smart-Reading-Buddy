@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:smart_reading_buddy/features/numbers/data/numbers_data.dart';
+import 'package:smart_reading_buddy/core/data/numbers_data.dart';
 import 'package:smart_reading_buddy/core/models/pronunciation_result.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_answer_checker.dart';
 

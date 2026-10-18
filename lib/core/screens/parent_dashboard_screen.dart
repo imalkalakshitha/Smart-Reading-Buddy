@@ -8,6 +8,8 @@ import 'package:smart_reading_buddy/features/parent/screens/parent_pronunciation
 import 'package:smart_reading_buddy/features/parent/screens/parent_reading_analytics_screen.dart';
 import 'package:smart_reading_buddy/features/parent/screens/parent_writing_analytics_screen.dart';
 import 'package:smart_reading_buddy/features/parent/screens/parent_timed_reading_analytics_screen.dart';
+import 'package:smart_reading_buddy/features/parent/screens/parent_numbers_analytics_screen.dart';
+import 'package:smart_reading_buddy/features/parent/services/numbers_summary.dart';
 
 /// Parent dashboard landing screen — reached after the PIN gate.
 /// One card per learning module; only Pronunciation and Timed Reading
@@ -45,6 +47,32 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
   static const bool _showPlaceholderReadingCard = false;
 
   String get profileName => widget.profileName;
+
+  // Numbers card summary — loaded once on open and again after returning
+  // from the Numbers analytics screen.
+  NumbersSummary? _numbers;
+  bool _numbersLoaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNumbers();
+  }
+
+  Future<void> _loadNumbers() async {
+    try {
+      final s = await NumbersSummaryLoader.load(profileName);
+      if (mounted) {
+        setState(() {
+          _numbers = s;
+          _numbersLoaded = true;
+        });
+      }
+    } catch (e) {
+      debugPrint('[ParentDashboard] Numbers summary failed: $e');
+      if (mounted) setState(() => _numbersLoaded = true);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -106,6 +134,18 @@ class _ParentDashboardScreenState extends State<ParentDashboardScreen> {
             builder: (_) => EduPlayParentJourneyScreen(childId: profileName),
           ),
         ),
+      ),
+      _NumbersModuleCard(
+        summary: _numbers,
+        loaded: _numbersLoaded,
+        onTap: () async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => ParentNumbersAnalyticsScreen(profileName: profileName),
+            ),
+          );
+          _loadNumbers();
+        },
       ),
     ];
 
@@ -216,6 +256,89 @@ class _ModuleCard extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The Numbers card — same shell as [_ModuleCard] (white, bordered,
+/// tinted icon circle), with a slightly smaller icon so a three-line
+/// summary fits the same grid cell: levels passed, overall accuracy and
+/// the latest Rapid Digit Naming speed.
+class _NumbersModuleCard extends StatelessWidget {
+  final NumbersSummary? summary;
+  final bool loaded;
+  final VoidCallback onTap;
+
+  const _NumbersModuleCard({required this.summary, required this.loaded, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = summary;
+    final lines = <String>[
+      if (!loaded) '…'
+      else if (s == null || !s.hasData) 'Not started yet'
+      else ...[
+        'Basic ${s.basicPassed}/${s.basicTotal} · Advanced ${s.advancedPassed}/${s.advancedTotal}',
+        if (s.overall.rate != null) '${(s.overall.rate! * 100).round()}% accuracy',
+        if (s.latestRan != null) 'RAN ${s.latestRan!.digitsPerSecond.toStringAsFixed(1)} digits/s',
+      ],
+    ];
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.divider),
+          ),
+          // Scales down on very narrow phones instead of overflowing the
+          // grid cell (the other cards have less text).
+          child: Center(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 46,
+                height: 46,
+                decoration: const BoxDecoration(color: kNumbersTint, shape: BoxShape.circle),
+                child: const Icon(Icons.pin_rounded, color: kNumbersAccent, size: 24),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Numbers',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.nunito(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              for (final line in lines)
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    line,
+                    style: GoogleFonts.nunito(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+            ),
           ),
         ),
       ),
