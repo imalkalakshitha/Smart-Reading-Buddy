@@ -125,9 +125,25 @@ class FeedbackSlot extends StatelessWidget {
 typedef SubmitAnswer = bool Function(Object response);
 
 /// English TTS for prompts — slow and clear.
+///
+/// [speaking] is the "is speaking" flag; [onFinished] fires each time an
+/// utterance finishes (or fails, or is stopped). They only observe the
+/// engine's callbacks — how and what it speaks is unchanged. Used by the
+/// Smart Buddy helper so a buddy reaction never talks over the app.
 class NumberSpeaker {
   final FlutterTts _tts = FlutterTts();
   bool _ready = false;
+
+  final ValueNotifier<bool> speaking = ValueNotifier(false);
+  final StreamController<void> _finished = StreamController<void>.broadcast();
+
+  bool get isSpeaking => speaking.value;
+  Stream<void> get onFinished => _finished.stream;
+
+  void _markFinished() {
+    speaking.value = false;
+    if (!_finished.isClosed) _finished.add(null);
+  }
 
   Future<void> _init() async {
     if (_ready) return;
@@ -135,6 +151,13 @@ class NumberSpeaker {
     await _tts.setLanguage('en-US');
     await _tts.setSpeechRate(0.4);
     await _tts.setPitch(1.0);
+    _tts.setStartHandler(() => speaking.value = true);
+    _tts.setCompletionHandler(_markFinished);
+    _tts.setErrorHandler((_) => _markFinished());
+    // Not setCancelHandler: say() stops the previous utterance before the
+    // next, and that cancel can arrive after the new one has started —
+    // clearing the flag then would let a buddy reaction talk over it.
+    // A real stop goes through stop() below, which clears it.
   }
 
   Future<void> say(String text) async {
@@ -142,6 +165,7 @@ class NumberSpeaker {
     _runId++; // detaches any earlier sayWithProgress word callback
     _clearProgress();
     await _tts.stop();
+    speaking.value = true;
     await _tts.speak(text);
   }
 
@@ -180,6 +204,7 @@ class NumberSpeaker {
       });
     });
     await _tts.awaitSpeakCompletion(true);
+    speaking.value = true;
     await _tts.speak(text);
     await _tts.awaitSpeakCompletion(false);
     if (run == _runId) {
@@ -196,6 +221,7 @@ class NumberSpeaker {
   Future<void> stop() {
     _runId++;
     _clearProgress();
+    if (speaking.value) _markFinished();
     return _tts.stop();
   }
 }

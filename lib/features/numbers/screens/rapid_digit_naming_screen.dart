@@ -7,6 +7,7 @@ import 'package:smart_reading_buddy/core/dao/number_practice_dao.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_answer_checker.dart';
+import 'package:smart_reading_buddy/features/numbers/services/numbers_buddy.dart';
 import 'package:smart_reading_buddy/features/numbers/services/ran_row_listener.dart';
 import 'package:smart_reading_buddy/features/numbers/services/ran_row_tracker.dart';
 import 'package:smart_reading_buddy/core/services/speech/timed_reading_speech_bridge.dart';
@@ -40,7 +41,7 @@ class RapidDigitNamingScreen extends StatefulWidget {
   State<RapidDigitNamingScreen> createState() => _RapidDigitNamingScreenState();
 }
 
-enum _Phase { checking, unavailable, ready, recording, scoring, finished }
+enum _Phase { checking, unavailable, ready, getReady, recording, scoring, finished }
 
 class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   static const int _rows = 5;
@@ -55,6 +56,13 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   _Phase _phase = _Phase.checking;
   String? _notice;
 
+  // Smart Buddy: LOUDER when a row heard nothing, PRAISE when a row is
+  // finished, one SESSION_END (instead of PRAISE) when all 5 rows are done.
+  // Never while the mic listens; after a reaction the next row's mic waits
+  // ~2 s ("Get ready…"). RAN has no app voice.
+  final _buddy = NumbersBuddy.instance;
+  final _micOn = ValueNotifier<bool>(false);
+
   final Stopwatch _stopwatch = Stopwatch();
   Timer? _uiTimer;
   Timer? _maxRowTimer;
@@ -65,12 +73,15 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   @override
   void initState() {
     super.initState();
+    _buddy.attach(this, mic: _micOn);
     _grid = _generateGrid();
     _checkStt();
   }
 
   @override
   void dispose() {
+    _buddy.detach(this);
+    _micOn.dispose();
     _uiTimer?.cancel();
     _maxRowTimer?.cancel();
     _listener?.cancel();
@@ -117,6 +128,14 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
 
   Future<void> _startRow() async {
     if (_phase != _Phase.ready) return;
+    // A buddy reaction was sent moments ago — let its clip finish before
+    // listening, so it isn't transcribed. The button says "Get ready…".
+    final wait = _buddy.micClearance();
+    if (wait > Duration.zero) {
+      setState(() => _phase = _Phase.getReady);
+      await Future.delayed(wait);
+      if (!mounted || _phase != _Phase.getReady) return;
+    }
     if (!_stopwatch.isRunning) _stopwatch.start();
     final tracker = RanRowTracker(expectedCount: _cols);
     final listener = RanRowListener(
@@ -139,6 +158,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
     });
     _maxRowTimer?.cancel();
     _maxRowTimer = Timer(_maxRowDuration, () => listener.stop(RanRowEnd.timeout));
+    _micOn.value = true;
     await listener.start();
   }
 
@@ -150,6 +170,8 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   }
 
   void _onRowEnded(RanRowEnd reason) {
+    // The listener has stopped the mic (incl. its final-text grace).
+    _micOn.value = false;
     _maxRowTimer?.cancel();
     _uiTimer?.cancel();
     if (!mounted) return;
@@ -162,6 +184,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
         _phase = _Phase.ready;
         _notice = "We couldn't hear you — let's try this row again! 🎤";
       });
+      _buddy.react(BuddyReaction.louder);
       return;
     }
 
@@ -182,7 +205,12 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
         _stopwatch.stop();
       }
     });
-    if (_phase == _Phase.finished) _save();
+    if (_phase == _Phase.finished) {
+      _save();
+      _buddy.sessionEnded(passed: true); // whole RAN done → one SESSION_END
+    } else {
+      _buddy.react(BuddyReaction.praise); // a row finished
+    }
   }
 
   void _save() {
@@ -275,6 +303,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
   Widget _buildGame() {
     final recording = _phase == _Phase.recording;
     final scoring = _phase == _Phase.scoring;
+    final gettingReady = _phase == _Phase.getReady;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -361,7 +390,7 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
           ),
           const SizedBox(height: 16),
           GestureDetector(
-            onTap: recording ? _doneTapped : (scoring ? null : _startRow),
+            onTap: recording ? _doneTapped : (scoring || gettingReady ? null : _startRow),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: 120,
@@ -395,13 +424,17 @@ class _RapidDigitNamingScreenState extends State<RapidDigitNamingScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          recording ? Icons.hearing_rounded : Icons.mic_rounded,
+                          gettingReady
+                              ? Icons.hourglass_top_rounded
+                              : (recording ? Icons.hearing_rounded : Icons.mic_rounded),
                           size: 42,
                           color: recording ? Colors.white : AppColors.pronunciation,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          recording ? 'Listening…' : (_results.isEmpty ? 'Start' : 'Next row'),
+                          gettingReady
+                              ? 'Get ready…'
+                              : (recording ? 'Listening…' : (_results.isEmpty ? 'Start' : 'Next row')),
                           style: GoogleFonts.nunito(
                             fontSize: 12,
                             fontWeight: FontWeight.w800,

@@ -12,6 +12,7 @@ import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/core/services/numbers/level_progress.dart';
 import 'package:smart_reading_buddy/features/numbers/services/match_game.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_words.dart';
+import 'package:smart_reading_buddy/features/numbers/services/numbers_buddy.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/learning_widgets.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_visuals.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/session_summary.dart';
@@ -54,16 +55,25 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
   int _messageId = 0;
   Timer? _messageTimer;
   bool _finished = false;
+
+  // Smart Buddy: RETRY only for an avoidable mismatch (the partner card had
+  // already been seen — exploring isn't a mistake); a pair matched first
+  // time counts toward the every-3rd PRAISE; SESSION_END / ENCOURAGE at the
+  // end. Sent only after the app voice finishes.
+  final _buddy = NumbersBuddy.instance;
+  final _streak = PraiseStreak();
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
+    _buddy.attach(this, speaking: _speaker.speaking);
     _load();
   }
 
   @override
   void dispose() {
+    _buddy.detach(this);
     _timer?.cancel();
     _messageTimer?.cancel();
     _speaker.stop();
@@ -115,6 +125,10 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
         });
         _showMessage('💪', "Let's try again!", FeedbackTone.tryAgain);
         _speaker.say("${_spoken(card)}. Let's try again!");
+        if (r.avoidable) {
+          _streak.miss();
+          _buddy.react(BuddyReaction.retry);
+        }
         _timer = Timer(kWrongResetDelay, () {
           if (!mounted) return;
           setState(() {
@@ -127,6 +141,7 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
 
   void _onMatch(int value) {
     final point = _game.pairScore(value);
+    if (_streak.correct(firstTry: point == 1)) _buddy.react(BuddyReaction.praise);
     final now = DateTime.now();
     NumberLearningDao.saveAttempt(
       profileName: AppState.name,
@@ -149,15 +164,25 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
     _speaker.say('${NumberWords.of(value)}. Great match!');
 
     if (_pairsDone >= MatchBoardGenerator.pairsPerSession) {
-      _timer = Timer(const Duration(milliseconds: 1400), () {
+      _timer = Timer(const Duration(milliseconds: 1400), () async {
         if (!mounted) return;
+        if (_buddy.hasClipToWaitFor) {
+          await _waitForBuddyClip();
+          if (!mounted) return;
+        }
         setState(() => _finished = true);
-        _speaker.say(_score >= LevelProgressRules.passScore ? 'Well done! Level passed!' : 'Well done!');
+        final passed = _score >= LevelProgressRules.passScore;
+        _speaker.say(passed ? 'Well done! Level passed!' : 'Well done!');
+        _buddy.sessionEnded(passed: passed);
       });
     } else if (_game.done) {
       setState(() => _busy = true);
-      _timer = Timer(const Duration(milliseconds: 1400), () {
+      _timer = Timer(const Duration(milliseconds: 1400), () async {
         if (!mounted) return;
+        if (_buddy.hasClipToWaitFor) {
+          await _waitForBuddyClip();
+          if (!mounted) return;
+        }
         setState(() {
           _boardIndex++;
           _game = MatchGame(_boards![_boardIndex]);
@@ -166,6 +191,15 @@ class _NumberMatchSessionScreenState extends State<NumberMatchSessionScreen> {
         });
       });
     }
+  }
+
+  /// Holds the current board (cards locked, so a flip's spoken word can't
+  /// talk over the buddy) until the buddy's clip is done. Called only when
+  /// hasClipToWaitFor is true — callers check that first, so without a
+  /// connected buddy the timing is exactly unchanged.
+  Future<void> _waitForBuddyClip() async {
+    setState(() => _busy = true);
+    await _buddy.waitForClip();
   }
 
   @override

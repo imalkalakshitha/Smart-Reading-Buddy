@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:smart_reading_buddy/core/data/numbers_data.dart';
 import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
+import 'package:smart_reading_buddy/core/services/ble_command_service.dart';
 import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_learning_screen.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/number_level_list_screen.dart';
@@ -14,8 +15,30 @@ import 'package:smart_reading_buddy/features/numbers/screens/rapid_digit_naming_
 /// screen (AppRouter.numbers). ENGLISH ONLY. Sections: Pronunciation,
 /// Number Learning, EduPlay + Encoding (Spell Number Words, Number Match)
 /// and Reading (Read & Answer).
-class NumbersHubScreen extends StatelessWidget {
+///
+/// Opening the hub also connects the Smart Buddy (fire-and-forget, same as
+/// EduPlayChildDashboard), so Numbers reactions work even when the child
+/// came straight from Home. No connect UI — it fails silently.
+class NumbersHubScreen extends StatefulWidget {
   const NumbersHubScreen({super.key});
+
+  @override
+  State<NumbersHubScreen> createState() => _NumbersHubScreenState();
+}
+
+class _NumbersHubScreenState extends State<NumbersHubScreen> {
+  @override
+  void initState() {
+    super.initState();
+    BleCommandService.instance.scanAndConnect();
+  }
+
+  @override
+  Widget build(BuildContext context) => const _NumbersHubView();
+}
+
+class _NumbersHubView extends StatelessWidget {
+  const _NumbersHubView();
 
   static const _accent = Color(0xFFF39C12);
   static const _eduPlayColor = Color(0xFF7B61FF);

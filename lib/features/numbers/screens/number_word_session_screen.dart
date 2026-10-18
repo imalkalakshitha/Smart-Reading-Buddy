@@ -9,6 +9,7 @@ import 'package:smart_reading_buddy/core/models/app_colors.dart';
 import 'package:smart_reading_buddy/core/models/app_state.dart';
 import 'package:smart_reading_buddy/core/services/speech/hybrid_pronunciation_scorer.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_answer_checker.dart';
+import 'package:smart_reading_buddy/features/numbers/services/numbers_buddy.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/numbers_hub_screen.dart' show EnglishOnlyNote;
 
 /// Number Word Pronunciation — shows a digit ("15"), the child says the
@@ -65,12 +66,30 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   final FlutterTts _tts = FlutterTts();
   bool _speaking = false;
 
+  // Smart Buddy: LOUDER when no speech is heard, PRAISE on every 3rd
+  // first-try correct in a row, RETRY on a number's first wrong try,
+  // ENCOURAGE when "Skip this number" appears, SESSION_END when the set is
+  // finished. Never while the mic is listening; after a reaction the mic
+  // waits ~2 s ("Get ready…") so the buddy isn't transcribed.
+  final _buddy = NumbersBuddy.instance;
+  final _streak = PraiseStreak();
+  final _ttsSpeaking = ValueNotifier<bool>(false);
+  final _micOn = ValueNotifier<bool>(false);
+  bool _gettingReady = false;
+  bool _wrongOnItem = false;
+
+  void _setSpeaking(bool v) {
+    _speaking = v;
+    _ttsSpeaking.value = v;
+  }
+
   NumberItem get _current => _items[_index];
 
   @override
   void initState() {
     super.initState();
     _items = NumbersData.forLevel(widget.levelKey)..shuffle();
+    _buddy.attach(this, speaking: _ttsSpeaking, mic: _micOn);
     _initTts();
   }
 
@@ -80,12 +99,15 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
     await _tts.setSpeechRate(0.38);
     await _tts.setPitch(1.0);
     _tts.setCompletionHandler(() {
-      if (mounted) setState(() => _speaking = false);
+      if (mounted) setState(() => _setSpeaking(false));
     });
   }
 
   @override
   void dispose() {
+    _buddy.detach(this);
+    _ttsSpeaking.dispose();
+    _micOn.dispose();
     _autoStopTimer?.cancel();
     _vadSub?.cancel();
     _partialSub?.cancel();
@@ -97,20 +119,31 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
     if (_recording || _scoring) return;
     if (_speaking) {
       await _tts.stop();
-      setState(() => _speaking = false);
+      setState(() => _setSpeaking(false));
       return;
     }
-    setState(() => _speaking = true);
+    setState(() => _setSpeaking(true));
     await _tts.speak(_current.word);
-    if (mounted) setState(() => _speaking = false);
+    if (mounted) setState(() => _setSpeaking(false));
   }
 
-  void _onMicTap() {
-    if (_showResult || _scoring || _recording) return;
+  Future<void> _onMicTap() async {
+    if (_showResult || _scoring || _recording || _gettingReady) return;
+    // A buddy reaction was sent moments ago — let its clip finish before
+    // listening, so it isn't transcribed. The button says "Get ready…".
+    final wait = _buddy.micClearance();
+    if (wait > Duration.zero) {
+      setState(() => _gettingReady = true);
+      await Future.delayed(wait);
+      if (!mounted) return;
+      setState(() => _gettingReady = false);
+      if (_showResult || _scoring || _recording) return;
+    }
+    _micOn.value = true;
     _tts.stop();
     setState(() {
       _recording = true;
-      _speaking = false;
+      _setSpeaking(false);
     });
     _vadHasSpokenOnce = false;
     _vadSilenceStartedAt = null;
@@ -168,6 +201,8 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
       lang: 'en',
       gradeNum: gradeNum,
     );
+    // stopAndScore has fully released the mic (incl. any extra capture).
+    _micOn.value = false;
     final verdict = await NumberAnswerChecker.check(target: _current, result: result);
     if (!mounted) return;
 
@@ -204,6 +239,20 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
     });
 
     final isOk = verdict.verdict == 'OK';
+    if (verdict.verdict == 'NO_SPEECH') {
+      _buddy.react(BuddyReaction.louder);
+    } else if (isOk) {
+      if (_streak.correct(firstTry: _attemptNumber == 1)) _buddy.react(BuddyReaction.praise);
+    } else {
+      _streak.miss();
+      if (!_wrongOnItem) {
+        _wrongOnItem = true;
+        _buddy.react(BuddyReaction.retry);
+      }
+    }
+    // "Skip this number" now shows — outranks RETRY / LOUDER from above.
+    if (!isOk && _failCount >= _maxFailsBeforeSkip) _buddy.react(BuddyReaction.encourage);
+
     if (!isOk && _failCount < _maxFailsBeforeSkip) {
       // Same as PronunciationSessionScreen: wrong attempts auto-dismiss so
       // the child can try again. The -teen/-ty tip stays up longer to read.
@@ -215,11 +264,13 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   }
 
   void _advance() {
+    _wrongOnItem = false;
     if (_index >= _items.length - 1) {
       setState(() {
         _showResult = false;
         _finished = true;
       });
+      _buddy.sessionEnded(passed: true); // finishing a set → SESSION_END
       return;
     }
     setState(() {
@@ -232,6 +283,8 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
   }
 
   void _restart() {
+    _streak.miss();
+    _wrongOnItem = false;
     setState(() {
       _items = NumbersData.forLevel(widget.levelKey)..shuffle();
       _index = 0;
@@ -475,13 +528,15 @@ class _NumberWordSessionScreenState extends State<NumberWordSessionScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Icon(
-                          _recording ? Icons.stop_rounded : Icons.mic_rounded,
+                          _gettingReady
+                              ? Icons.hourglass_top_rounded
+                              : (_recording ? Icons.stop_rounded : Icons.mic_rounded),
                           size: 42,
                           color: _recording ? Colors.white : AppColors.pronunciation,
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _recording ? 'Listening...' : 'Tap to speak',
+                          _gettingReady ? 'Get ready…' : (_recording ? 'Listening...' : 'Tap to speak'),
                           style: GoogleFonts.nunito(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,

@@ -11,6 +11,7 @@ import 'package:smart_reading_buddy/core/services/numbers/level_config.dart';
 import 'package:smart_reading_buddy/core/services/numbers/learner_grade.dart';
 import 'package:smart_reading_buddy/core/services/numbers/level_progress.dart';
 import 'package:smart_reading_buddy/features/numbers/services/number_question.dart';
+import 'package:smart_reading_buddy/features/numbers/services/numbers_buddy.dart';
 import 'package:smart_reading_buddy/features/numbers/services/question_generator.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/activities/build_activity.dart';
 import 'package:smart_reading_buddy/features/numbers/screens/learning/activities/calculation_activity.dart';
@@ -67,16 +68,25 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
   Timer? _cardTimer;
   bool _finished = false;
 
+  // Smart Buddy: PRAISE on every 3rd first-try correct in a row, RETRY on a
+  // question's first wrong try, ENCOURAGE when the answer is revealed, and
+  // SESSION_END / ENCOURAGE when the level ends. Sent only after the app
+  // voice finishes (see NumbersBuddy).
+  final _buddy = NumbersBuddy.instance;
+  final _streak = PraiseStreak();
+
   NumberQuestion get _q => _questions![_index];
 
   @override
   void initState() {
     super.initState();
+    _buddy.attach(this, speaking: _speaker.speaking);
     _load();
   }
 
   @override
   void dispose() {
+    _buddy.detach(this);
     _advanceTimer?.cancel();
     _cardTimer?.cancel();
     _speaker.stop();
@@ -146,14 +156,17 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
         // Stays up until the next question (1.5 s), so no auto-hide.
         _showCard('🎉', 'Great job!', FeedbackTone.good, autoHide: false);
         _speaker.say('Great job!');
+        if (_streak.correct(firstTry: _wrongs == 0)) _buddy.react(BuddyReaction.praise);
         _advanceTimer = Timer(const Duration(milliseconds: 1500), _next);
         return true;
       case AnswerResult.wrong:
         _wrongs++;
+        _streak.miss();
         if (_wrongs < _maxTries) {
           setState(() => _feedback = _Feedback.tryAgain);
           _showCard('💪', "Let's try again!", FeedbackTone.tryAgain);
           _speaker.say("Let's try again!");
+          if (_wrongs == 1) _buddy.react(BuddyReaction.retry);
         } else {
           _save(correct: false, score: 0);
           _cardTimer?.cancel();
@@ -162,6 +175,7 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
             _feedback = _Feedback.revealed;
           });
           _speaker.say('The answer is ${NumberAnswerCheck.answerText(_q)}');
+          _buddy.react(BuddyReaction.encourage);
         }
         return false;
     }
@@ -194,12 +208,27 @@ class _NumberLearningSessionScreenState extends State<NumberLearningSessionScree
     ).catchError((Object e) => debugPrint('[NumberLearning] save failed: $e'));
   }
 
-  void _next() {
+  bool _waitingForBuddy = false;
+
+  Future<void> _next() async {
     _advanceTimer?.cancel();
-    if (!mounted) return;
+    if (!mounted || _waitingForBuddy) return;
+    // A buddy reaction is pending or its clip is still playing: keep this
+    // question on screen until the clip is done, so the next question's
+    // voice doesn't talk over the buddy. Without a connected buddy nothing
+    // is ever pending, so this is skipped and the timing is unchanged.
+    if (_buddy.hasClipToWaitFor) {
+      _waitingForBuddy = true;
+      await _buddy.waitForClip();
+      _waitingForBuddy = false;
+      if (!mounted) return;
+    }
     if (_index >= _questions!.length - 1) {
       setState(() => _finished = true);
-      _speaker.say(_score >= LevelProgressRules.passScore ? 'Well done! Level passed!' : 'Well done!');
+      final passed = _score >= LevelProgressRules.passScore;
+      _speaker.say(passed ? 'Well done! Level passed!' : 'Well done!');
+      // One reaction for the end: passing is also what opens the next level.
+      _buddy.sessionEnded(passed: passed);
       return;
     }
     setState(() => _index++);
