@@ -17,7 +17,7 @@ import 'package:smart_reading_buddy/core/services/speech/hybrid_pronunciation_sc
 import 'package:smart_reading_buddy/core/services/ble_command_service.dart';
 import 'package:smart_reading_buddy/features/pronunciation/services/phoneme_substitution_analyzer.dart';
 import 'package:smart_reading_buddy/core/services/session_logger.dart';
-import 'package:smart_reading_buddy/features/pronunciation/widgets/phoneme_image_widget.dart';
+import 'package:smart_reading_buddy/core/widgets/phoneme_image_widget.dart';
 
 class PronunciationSessionScreen extends StatefulWidget {
   final PronunciationSessionArgs args;

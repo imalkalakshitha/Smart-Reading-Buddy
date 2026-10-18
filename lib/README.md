@@ -30,7 +30,7 @@ lives in `core/`.
 | `core/services/numbers/` | Numbers level config and unlock rules shared with Parent: `LevelConfig` / `LevelRepository` (levels.json, practice_activities.json), `LevelProgressRules`, `LearnerGrade` | Numbers feature (in core because Parent analytics uses them) |
 | `core/dao/` | DAOs shared by more than one feature: `EduPlayDatabase`, `FreeDrawingDao`, `TimedReadingDao`, `NumberLearningDao`, `NumberPracticeDao` | shared (each DAO's feature owns its own table) |
 | `core/data/` | Shared data: word lists, substitution tips, cross-language phoneme map, Timed Reading sentences, `NumbersData` (number words, -teen/-ty pairs, Number Words levels) | shared |
-| `core/widgets/` | Shared widgets: `ComingSoonPlaceholder`, `LoadingDots` (+ unused `MascotReaction`, `SmartBuddyButton`) | shared |
+| `core/widgets/` | Shared widgets: `ComingSoonPlaceholder`, `LoadingDots`, `PhonemeImageWidget` (mouth pictures — see note below) (+ unused `MascotReaction`, `SmartBuddyButton`) | shared; `PhonemeImageWidget` is **Pronunciation function (Imalka)** |
 | `features/pronunciation/` | Pronunciation, calibration and Timed Reading — screens, services (calibration, coaching, phoneme substitution, word diff), data, widgets | Pronunciation function — Imalka |
 | `features/eduplay_encoding/` | EduPlay (engine, RF model, task repository, screens) and Encoding (word / sentence building) | EduPlay + Encoding function — _(add name)_ |
 | `features/writing/` | Free Drawing recognition, scribble guard, tracing and writing progress screens | Writing function — _(add name)_ |
@@ -46,6 +46,16 @@ scorers, the speech bridge and the audio preprocessor) belongs to the
 Numbers feature also uses it: Number Words is scored by the hybrid scorer,
 and Rapid Digit Naming uses the speech bridge's STT availability check.
 Changes to these files should be agreed with the Pronunciation owner.
+
+### Note: `core/widgets/phoneme_image_widget.dart` is owned by Pronunciation
+
+Pronunciation's mouth guide ("Watch how to say it") and its phoneme →
+mouth picture mapping (`getImageForPhoneme`, pictures in
+`assets/images/mouth/`). It moved here from
+`features/pronunciation/widgets/` only so Number Words can show the same
+mouth pictures (`features/numbers/services/number_mouth.dart` turns CMU
+phonemes into IPA and asks this mapping for the picture). Changes to it
+should be agreed with the Pronunciation owner.
 
 ## Inside a feature
 
@@ -72,3 +82,16 @@ reorganised: `core/models/word_data.dart`,
 `features/pronunciation/services/stt_pronunciation_scorer.dart`,
 `features/pronunciation/widgets/vmg_widget.dart`,
 `features/pronunciation/widgets/vmg_mouth_widget.dart`.
+
+## To do (needs a separate, confirmed change)
+
+- **Pronunciation mouth pictures:** `PhonemeImageWidget.getImageForPhoneme`
+  (`core/widgets/phoneme_image_widget.dart`) shows the wrong mouth shape
+  for three sounds when given CMU/letter input: `AO` (as in "four") shows
+  wide open instead of rounded lips; `DH` (as in "this") shows teeth
+  together instead of the tongue between the teeth; `W` shows open-mid
+  instead of rounded lips. Numbers works around this in
+  `number_mouth.dart` (CMU → IPA, and `W` as rounded) without touching
+  the shared mapping. Fixing the mapping itself changes what
+  Pronunciation shows, so it should be agreed with the Pronunciation
+  owner first.
